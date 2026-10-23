@@ -1,0 +1,163 @@
+export type Categoria = "servicios" | "expensas" | "alquiler"
+
+export type EstadoDocumento = "borrador" | "confirmado"
+
+export type EstadoTarea =
+  | "PENDING"
+  | "RUNNING"
+  | "AWAITING_APPROVAL"
+  | "FAILED"
+  | "DONE"
+
+export type Credenciales = {
+  email: string
+  password: string
+}
+
+export type Token = {
+  access_token: string
+  token_type: "bearer"
+  user_id: string
+}
+
+export type UsuarioActual = {
+  user_id: string
+  email: string
+}
+
+export type CamposDocumento = {
+  proveedor?: string
+  categoria?: Categoria
+  periodo?: string
+  monto?: string
+  moneda?: string
+  vencimiento?: string
+  numero_comprobante?: string
+}
+
+export type DocumentoBorrador = {
+  id: string
+  estado: "borrador"
+  campos: CamposDocumento
+  texto: string
+  advertencias: string[]
+}
+
+export type Indexado = "ok" | "error" | "omitido"
+
+export type Cambio = {
+  campo: string
+  antes: string | null
+  despues: string | null
+}
+
+export type DocumentoConfirmado = {
+  id: string
+  estado: "confirmado"
+  campos: CamposDocumento
+  anulado: boolean
+  indexado: Indexado | null
+  cambios: Cambio[]
+}
+
+export type DocumentoDetalle = DocumentoBorrador | DocumentoConfirmado
+
+export type DocumentoListado = {
+  id: string
+  estado: EstadoDocumento
+  campos: CamposDocumento
+  anulado?: boolean
+  indexado?: Indexado | null
+  cambios?: Cambio[]
+}
+
+export type ListaDocumentos = {
+  items: DocumentoListado[]
+}
+
+export type Factura = {
+  proveedor: string
+  categoria: Categoria
+  periodo: string
+  monto: string
+  moneda: string
+  vencimiento: string | null
+  numero_comprobante: string | null
+}
+
+export type TotalMes = {
+  periodo: string
+  total: string
+}
+
+export type TotalCategoria = {
+  categoria: Categoria
+  total: string
+}
+
+export type Resumen = {
+  por_mes: TotalMes[]
+  por_categoria: TotalCategoria[]
+  comprobantes: DocumentoConfirmado[]
+}
+
+export type ConsultaTarea = {
+  query: string
+  thread_id: string | null
+}
+
+export type TareaCreada = {
+  job_id: string
+  status: "PENDING"
+  thread_id: string
+}
+
+export type TareaEstado = {
+  job_id: string
+  status: EstadoTarea
+  thread_id: string
+  result: string | null
+}
+
+export type RolMensaje = "persona" | "asistente" | "nota"
+
+export type MensajeHilo = {
+  rol: RolMensaje
+  texto: string
+  creado_en: string
+}
+
+export type Hilo = {
+  thread_id: string
+  titulo: string
+  actualizado_en: string
+}
+
+export type HiloDetalle = {
+  thread_id: string
+  mensajes: MensajeHilo[]
+}
+
+export type ListaHilos = {
+  items: Hilo[]
+}
+
+export const ESTADOS_TAREA: readonly EstadoTarea[] = [
+  "PENDING",
+  "RUNNING",
+  "AWAITING_APPROVAL",
+  "FAILED",
+  "DONE",
+]
+
+export const CATEGORIAS: readonly Categoria[] = ["servicios", "expensas", "alquiler"]
+
+export const ETIQUETA_CATEGORIA: Record<Categoria, string> = {
+  servicios: "Servicios",
+  expensas: "Expensas",
+  alquiler: "Alquiler",
+}
+
+export function esBorrador(doc: DocumentoDetalle): doc is DocumentoBorrador {
+  return doc.estado === "borrador"
+}

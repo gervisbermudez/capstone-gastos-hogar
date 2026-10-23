@@ -1,0 +1,7 @@
+# Artefactos de build
+*.tsbuildinfo
+
+# Datos locales de corrida. Los textos semilla api/data/*.txt sí se versionan.
+api/data/*.db
+api/data/*.db-*
+api/data/*.jsonl

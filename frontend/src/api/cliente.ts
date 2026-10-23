@@ -1,0 +1,552 @@
+import { leerToken, olvidarSesion } from "../almacen"
+import {
+  ESTADOS_TAREA,
+  type Cambio,
+  type ConsultaTarea,
+  type Credenciales,
+  type CamposDocumento,
+  type Categoria,
+  type DocumentoBorrador,
+  type DocumentoConfirmado,
+  type DocumentoDetalle,
+  type EstadoTarea,
+  type Factura,
+  type HiloDetalle,
+  type Indexado,
+  type ListaDocumentos,
+  type ListaHilos,
+  type Resumen,
+  type RolMensaje,
+  type TareaCreada,
+  type TareaEstado,
+  type Token,
+  type UsuarioActual,
+} from "./tipos"
+
+export class ErrorApi extends Error {
+  readonly status: number
+  readonly campos: Readonly<Record<string, string>>
+
+  constructor(message: string, status: number, campos: Record<string, string> = {}) {
+    super(message)
+    this.name = "ErrorApi"
+    this.status = status
+    this.campos = campos
+  }
+}
+
+let alNoAutorizado = (): void => {}
+
+export function registrarNoAutorizado(fn: () => void): void {
+  alNoAutorizado = fn
+}
+
+export function esAbort(error: unknown): boolean {
+  return error instanceof DOMException && error.name === "AbortError"
+}
+
+function origen(): string {
+  const valor = import.meta.env.VITE_API_URL?.trim()
+  if (!valor) throw new ErrorApi("Falta VITE_API_URL en el entorno del frontend.", 0)
+  return valor.replace(/\/$/, "")
+}
+
+function limpiarMensaje(mensaje: string): string {
+  return mensaje.replace(/^Value error,\s*/i, "")
+}
+
+function leerCuerpo(cuerpo: unknown): { mensaje: string; campos: Record<string, string> } {
+  if (!cuerpo || typeof cuerpo !== "object") {
+    return { mensaje: "La API respondió con un error.", campos: {} }
+  }
+  const detalle = (cuerpo as { detail?: unknown }).detail
+  if (typeof detalle === "string" && detalle.trim()) {
+    return { mensaje: limpiarMensaje(detalle), campos: {} }
+  }
+  if (!Array.isArray(detalle)) {
+    return { mensaje: "La API respondió con un error.", campos: {} }
+  }
+  const campos: Record<string, string> = {}
+  const partes: string[] = []
+  for (const item of detalle) {
+    if (!item || typeof item !== "object") continue
+    const crudo = "msg" in item && typeof item.msg === "string" ? item.msg : "Dato inválido"
+    const msg = limpiarMensaje(crudo)
+    const crudoLoc = "loc" in item && Array.isArray(item.loc) ? (item.loc as unknown[]) : []
+    const loc = crudoLoc.map((parte) => String(parte))
+    const campo = loc.filter((parte) => parte !== "body" && parte !== "query").at(-1)
+    if (campo && !campos[campo]) campos[campo] = msg
+    partes.push(msg)
+  }
+  return { mensaje: partes[0] ?? "Datos inválidos", campos }
+}
+
+type Pedido = {
+  method?: string
+  cuerpo?: unknown
+  archivo?: File
+  privado?: boolean
+  signal?: AbortSignal
+  esperado: number | number[]
+}
+
+function falloDeEstado(status: number, json: unknown): ErrorApi {
+  if (status === 401) return new ErrorApi("Email o contraseña incorrectos.", 401)
+  const leido = leerCuerpo(json)
+  if (status === 404 && leido.mensaje === "Not Found") {
+    return new ErrorApi("La API no tiene esa ruta.", 404, leido.campos)
+  }
+  return new ErrorApi(leido.mensaje, status, leido.campos)
+}
+
+async function enviar(path: string, opciones: Omit<Pedido, "esperado">): Promise<Response> {
+  const headers = new Headers()
+  const privado = opciones.privado !== false
+  if (privado) {
+    const token = leerToken()
+    if (!token) {
+      olvidarSesion()
+      alNoAutorizado()
+      throw new ErrorApi("La sesión venció.", 401)
+    }
+    headers.set("Authorization", `Bearer ${token}`)
+  }
+
+  let body: BodyInit | undefined
+  if (opciones.archivo) {
+    const datos = new FormData()
+    datos.append("archivo", opciones.archivo)
+    body = datos
+  } else if (opciones.cuerpo !== undefined) {
+    headers.set("Content-Type", "application/json")
+    body = JSON.stringify(opciones.cuerpo)
+  }
+
+  let respuesta: Response
+  try {
+    respuesta = await fetch(`${origen()}${path}`, {
+      method: opciones.method ?? "GET",
+      headers,
+      body,
+      signal: opciones.signal,
+    })
+  } catch (error) {
+    if (esAbort(error)) throw error
+    throw new ErrorApi("No se pudo conectar con la API.", 0)
+  }
+
+  if (respuesta.status === 401 && privado) {
+    olvidarSesion()
+    alNoAutorizado()
+    throw new ErrorApi("La sesión venció.", 401)
+  }
+
+  return respuesta
+}
+
+async function leerJson(respuesta: Response, esperado: number[]): Promise<unknown> {
+  const texto = await respuesta.text()
+  let json: unknown = null
+  if (texto) {
+    try {
+      json = JSON.parse(texto) as unknown
+    } catch {
+      if (!esperado.includes(respuesta.status)) {
+        throw new ErrorApi("La API respondió con un error.", respuesta.status)
+      }
+      throw new ErrorApi("La API devolvió una respuesta que no es JSON.", respuesta.status)
+    }
+  }
+
+  if (!esperado.includes(respuesta.status)) throw falloDeEstado(respuesta.status, json)
+  return json
+}
+
+async function pedir(path: string, opciones: Pedido): Promise<unknown> {
+  const respuesta = await enviar(path, opciones)
+  const esperado = Array.isArray(opciones.esperado) ? opciones.esperado : [opciones.esperado]
+  return leerJson(respuesta, esperado)
+}
+
+async function rechazarSiNoEs200(respuesta: Response): Promise<void> {
+  if (respuesta.status === 200) return
+  const texto = await respuesta.text()
+  let json: unknown = null
+  if (texto) {
+    try {
+      json = JSON.parse(texto) as unknown
+    } catch {
+      throw new ErrorApi("La API respondió con un error.", respuesta.status)
+    }
+  }
+  throw falloDeEstado(respuesta.status, json)
+}
+
+function exigirToken(valor: unknown): Token {
+  if (!valor || typeof valor !== "object") throw new ErrorApi("La API no devolvió el token.", 0)
+  const candidato = valor as Partial<Token>
+  if (
+    typeof candidato.access_token !== "string" ||
+    candidato.access_token === "" ||
+    candidato.token_type !== "bearer" ||
+    typeof candidato.user_id !== "string" ||
+    candidato.user_id === ""
+  ) {
+    throw new ErrorApi("La API no devolvió el token.", 0)
+  }
+  return {
+    access_token: candidato.access_token,
+    token_type: "bearer",
+    user_id: candidato.user_id,
+  }
+}
+
+function exigirTareaCreada(valor: unknown): TareaCreada {
+  if (!valor || typeof valor !== "object") {
+    throw new ErrorApi("La API no devolvió el job.", 0)
+  }
+  const candidato = valor as Partial<TareaCreada>
+  if (
+    typeof candidato.job_id !== "string" ||
+    candidato.job_id === "" ||
+    candidato.status !== "PENDING" ||
+    typeof candidato.thread_id !== "string" ||
+    candidato.thread_id === ""
+  ) {
+    throw new ErrorApi("La API no devolvió el job.", 0)
+  }
+  return {
+    job_id: candidato.job_id,
+    status: "PENDING",
+    thread_id: candidato.thread_id,
+  }
+}
+
+function esObjeto(valor: unknown): valor is Record<string, unknown> {
+  return typeof valor === "object" && valor !== null
+}
+
+function camposDe(valor: unknown): CamposDocumento {
+  if (!esObjeto(valor)) return {}
+  return valor as CamposDocumento
+}
+
+function esIndexado(valor: unknown): valor is Indexado {
+  return valor === "ok" || valor === "error" || valor === "omitido"
+}
+
+function cambiosDe(valor: unknown): Cambio[] {
+  if (!Array.isArray(valor)) return []
+  const cambios: Cambio[] = []
+  for (const item of valor) {
+    if (!esObjeto(item) || typeof item.campo !== "string" || item.campo === "") continue
+    cambios.push({
+      campo: item.campo,
+      antes: typeof item.antes === "string" ? item.antes : null,
+      despues: typeof item.despues === "string" ? item.despues : null,
+    })
+  }
+  return cambios
+}
+
+function datosConfirmado(valor: Record<string, unknown>): Pick<DocumentoConfirmado, "anulado" | "indexado" | "cambios"> {
+  return {
+    anulado: valor.anulado === true,
+    indexado: esIndexado(valor.indexado) ? valor.indexado : null,
+    cambios: cambiosDe(valor.cambios),
+  }
+}
+
+function asegurarUsuario(valor: unknown): UsuarioActual {
+  if (!esObjeto(valor) || typeof valor.user_id !== "string" || valor.user_id === "" || typeof valor.email !== "string") {
+    throw new ErrorApi("La API no devolvió la sesión.", 0)
+  }
+  return { user_id: valor.user_id, email: valor.email }
+}
+
+function asegurarDetalle(valor: unknown): DocumentoDetalle {
+  if (!esObjeto(valor) || typeof valor.id !== "string" || valor.id === "") {
+    throw new ErrorApi("La API no devolvió el comprobante.", 0)
+  }
+  const campos = camposDe(valor.campos)
+  if (valor.estado === "borrador") {
+    return {
+      id: valor.id,
+      estado: "borrador",
+      campos,
+      texto: typeof valor.texto === "string" ? valor.texto : "",
+      advertencias: Array.isArray(valor.advertencias)
+        ? valor.advertencias.filter((item): item is string => typeof item === "string")
+        : [],
+    }
+  }
+  if (valor.estado === "confirmado") {
+    return { id: valor.id, estado: "confirmado", campos, ...datosConfirmado(valor) }
+  }
+  throw new ErrorApi("La API no devolvió el comprobante.", 0)
+}
+
+function asegurarConfirmado(valor: unknown, mensaje: string): DocumentoConfirmado {
+  const detalle = asegurarDetalle(valor)
+  if (detalle.estado !== "confirmado") throw new ErrorApi(mensaje, 0)
+  return detalle
+}
+
+function asegurarLista(valor: unknown): ListaDocumentos {
+  if (!esObjeto(valor) || !Array.isArray(valor.items)) {
+    throw new ErrorApi("La API no devolvió los comprobantes.", 0)
+  }
+  return {
+    items: valor.items.map((item) => {
+      const detalle = asegurarDetalle(item)
+      if (detalle.estado === "confirmado") {
+        return {
+          id: detalle.id,
+          estado: detalle.estado,
+          campos: detalle.campos,
+          anulado: detalle.anulado,
+          indexado: detalle.indexado,
+          cambios: detalle.cambios,
+        }
+      }
+      return { id: detalle.id, estado: detalle.estado, campos: detalle.campos }
+    }),
+  }
+}
+
+function esCategoria(valor: unknown): valor is Categoria {
+  return valor === "servicios" || valor === "expensas" || valor === "alquiler"
+}
+
+function asegurarResumen(valor: unknown): Resumen {
+  if (
+    !esObjeto(valor) ||
+    !Array.isArray(valor.por_mes) ||
+    !Array.isArray(valor.por_categoria) ||
+    !Array.isArray(valor.comprobantes)
+  ) {
+    throw new ErrorApi("La API no devolvió el resumen.", 0)
+  }
+  return {
+    por_mes: valor.por_mes.map((item) => {
+      if (!esObjeto(item) || typeof item.periodo !== "string" || typeof item.total !== "string") {
+        throw new ErrorApi("La API no devolvió el resumen.", 0)
+      }
+      return { periodo: item.periodo, total: item.total }
+    }),
+    por_categoria: valor.por_categoria.map((item) => {
+      if (!esObjeto(item) || !esCategoria(item.categoria) || typeof item.total !== "string") {
+        throw new ErrorApi("La API no devolvió el resumen.", 0)
+      }
+      return { categoria: item.categoria, total: item.total }
+    }),
+    comprobantes: valor.comprobantes.map((item) => {
+      const detalle = asegurarDetalle(item)
+      if (detalle.estado !== "confirmado") throw new ErrorApi("La API no devolvió el resumen.", 0)
+      return detalle
+    }),
+  }
+}
+
+function esRol(valor: unknown): valor is RolMensaje {
+  return valor === "persona" || valor === "asistente" || valor === "nota"
+}
+
+function asegurarListaHilos(valor: unknown): ListaHilos {
+  if (!esObjeto(valor) || !Array.isArray(valor.items)) {
+    throw new ErrorApi("La API no devolvió las conversaciones.", 0)
+  }
+  return {
+    items: valor.items.map((item) => {
+      if (
+        !esObjeto(item) ||
+        typeof item.thread_id !== "string" ||
+        item.thread_id === "" ||
+        typeof item.titulo !== "string" ||
+        typeof item.actualizado_en !== "string"
+      ) {
+        throw new ErrorApi("La API no devolvió las conversaciones.", 0)
+      }
+      return {
+        thread_id: item.thread_id,
+        titulo: item.titulo,
+        actualizado_en: item.actualizado_en,
+      }
+    }),
+  }
+}
+
+function asegurarHilo(valor: unknown): HiloDetalle {
+  if (
+    !esObjeto(valor) ||
+    typeof valor.thread_id !== "string" ||
+    valor.thread_id === "" ||
+    !Array.isArray(valor.mensajes)
+  ) {
+    throw new ErrorApi("La API no devolvió la conversación.", 0)
+  }
+  return {
+    thread_id: valor.thread_id,
+    mensajes: valor.mensajes.map((item) => {
+      if (!esObjeto(item) || !esRol(item.rol) || typeof item.texto !== "string" || typeof item.creado_en !== "string") {
+        throw new ErrorApi("La API no devolvió la conversación.", 0)
+      }
+      return { rol: item.rol, texto: item.texto, creado_en: item.creado_en }
+    }),
+  }
+}
+
+function esEstado(valor: unknown): valor is EstadoTarea {
+  return typeof valor === "string" && ESTADOS_TAREA.includes(valor as EstadoTarea)
+}
+
+function exigirTareaEstado(valor: unknown): TareaEstado {
+  if (!valor || typeof valor !== "object") throw new ErrorApi("La API no devolvió la tarea.", 0)
+  const candidato = valor as Partial<TareaEstado>
+  if (typeof candidato.job_id !== "string" || candidato.job_id === "") {
+    throw new ErrorApi("La API no devolvió la tarea.", 0)
+  }
+  if (!esEstado(candidato.status)) throw new ErrorApi("Estado de tarea desconocido.", 0)
+  if (typeof candidato.thread_id !== "string" || candidato.thread_id === "") {
+    throw new ErrorApi("La API no devolvió la tarea.", 0)
+  }
+  const result =
+    candidato.result == null ? null : typeof candidato.result === "string" ? candidato.result : null
+  return {
+    job_id: candidato.job_id,
+    status: candidato.status,
+    thread_id: candidato.thread_id,
+    result,
+  }
+}
+
+export const cliente = {
+  registrar(credenciales: Credenciales): Promise<Token> {
+    return pedir("/auth/registro", {
+      method: "POST",
+      cuerpo: credenciales,
+      privado: false,
+      esperado: 201,
+    }).then(exigirToken)
+  },
+
+  ingresar(credenciales: Credenciales): Promise<Token> {
+    return pedir("/auth/login", {
+      method: "POST",
+      cuerpo: credenciales,
+      privado: false,
+      esperado: 200,
+    }).then(exigirToken)
+  },
+
+  yo(signal?: AbortSignal): Promise<UsuarioActual> {
+    return pedir("/auth/me", { signal, esperado: 200 }).then(asegurarUsuario)
+  },
+
+  subir(archivo: File): Promise<DocumentoBorrador> {
+    return pedir("/documentos", {
+      method: "POST",
+      archivo,
+      esperado: 201,
+    }).then((valor) => {
+      const detalle = asegurarDetalle(valor)
+      if (detalle.estado !== "borrador") throw new ErrorApi("La API no devolvió el borrador.", 0)
+      return detalle
+    })
+  },
+
+  listarDocumentos(signal?: AbortSignal): Promise<ListaDocumentos> {
+    return pedir("/documentos", { signal, esperado: 200 }).then(asegurarLista)
+  },
+
+  verDocumento(id: string, signal?: AbortSignal): Promise<DocumentoDetalle> {
+    return pedir(`/documentos/${encodeURIComponent(id)}`, {
+      signal,
+      esperado: 200,
+    }).then(asegurarDetalle)
+  },
+
+  confirmar(id: string, factura: Factura): Promise<DocumentoConfirmado> {
+    return pedir(`/documentos/${encodeURIComponent(id)}/confirmar`, {
+      method: "POST",
+      cuerpo: factura,
+      esperado: 200,
+    }).then((valor) => asegurarConfirmado(valor, "La API no confirmó el comprobante."))
+  },
+
+  descartar(id: string): Promise<void> {
+    return pedir(`/documentos/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      esperado: 204,
+    }).then(() => undefined)
+  },
+
+  anular(id: string): Promise<DocumentoConfirmado> {
+    return pedir(`/documentos/${encodeURIComponent(id)}/anular`, {
+      method: "POST",
+      esperado: 200,
+    }).then((valor) => asegurarConfirmado(valor, "La API no devolvió el comprobante."))
+  },
+
+  corregir(id: string, factura: Factura): Promise<DocumentoConfirmado> {
+    return pedir(`/documentos/${encodeURIComponent(id)}/corregir`, {
+      method: "POST",
+      cuerpo: factura,
+      esperado: 200,
+    }).then((valor) => asegurarConfirmado(valor, "La API no devolvió el comprobante."))
+  },
+
+  archivo(id: string, signal?: AbortSignal): Promise<Blob> {
+    return enviar(`/documentos/${encodeURIComponent(id)}/archivo`, { signal }).then(async (respuesta) => {
+      await rechazarSiNoEs200(respuesta)
+      return respuesta.blob()
+    })
+  },
+
+  exportar(desde: string, hasta: string, signal?: AbortSignal): Promise<string> {
+    const consulta = new URLSearchParams({ desde, hasta })
+    return enviar(`/export?${consulta.toString()}`, { signal }).then(async (respuesta) => {
+      await rechazarSiNoEs200(respuesta)
+      return respuesta.text()
+    })
+  },
+
+  resumen(desde: string, hasta: string, signal?: AbortSignal): Promise<Resumen> {
+    const consulta = new URLSearchParams({ desde, hasta })
+    return pedir(`/resumen?${consulta.toString()}`, {
+      signal,
+      esperado: 200,
+    }).then(asegurarResumen)
+  },
+
+  crearTarea(consulta: ConsultaTarea): Promise<TareaCreada> {
+    return pedir("/tasks", {
+      method: "POST",
+      cuerpo: consulta,
+      esperado: 202,
+    }).then(exigirTareaCreada)
+  },
+
+  verTarea(jobId: string, signal?: AbortSignal): Promise<TareaEstado> {
+    return pedir(`/tasks/${encodeURIComponent(jobId)}`, { signal, esperado: 200 }).then(exigirTareaEstado)
+  },
+
+  aprobar(jobId: string, aprobado: boolean): Promise<void> {
+    return pedir(`/tasks/${encodeURIComponent(jobId)}/approve`, {
+      method: "POST",
+      cuerpo: { aprobado },
+      esperado: 202,
+    }).then(() => undefined)
+  },
+
+  listarHilos(signal?: AbortSignal): Promise<ListaHilos> {
+    return pedir("/hilos", { signal, esperado: 200 }).then(asegurarListaHilos)
+  },
+
+  verHilo(threadId: string, signal?: AbortSignal): Promise<HiloDetalle> {
+    return pedir(`/hilos/${encodeURIComponent(threadId)}`, {
+      signal,
+      esperado: 200,
+    }).then(asegurarHilo)
+  },
+}
