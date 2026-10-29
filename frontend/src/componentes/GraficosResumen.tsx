@@ -14,6 +14,7 @@ import {
 import type { TooltipPayloadEntry } from "recharts"
 import { etiquetaCategoria, esCategoriaFija, type Categoria, type TotalCategoria, type TotalMes } from "../api/tipos"
 import { formatMonto } from "../formato"
+import { DURACION, useMovimientoReducido } from "../movimiento"
 import { useTema } from "../temaModo"
 
 function coloresGrafico(oscuro: boolean) {
@@ -158,6 +159,7 @@ function textoPorcentaje(total: string, suma: bigint): string {
 
 export function GraficoMeses({ porMes }: { porMes: TotalMes[] }) {
   const { oscuro } = useTema()
+  const reducido = useMovimientoReducido()
   const colores = coloresGrafico(oscuro)
   const tick = { fontSize: 11, fill: colores.ejes }
   const meses = [...porMes].sort((a, b) => a.periodo.localeCompare(b.periodo))
@@ -215,7 +217,9 @@ export function GraficoMeses({ porMes }: { porMes: TotalMes[] }) {
             fill="#e0b43a"
             barSize={28}
             radius={[6, 6, 0, 0]}
-            isAnimationActive={false}
+            isAnimationActive={!reducido}
+            animationDuration={Number.parseInt(DURACION.grafico, 10)}
+            animationEasing="ease-out"
           />
         </BarChart>
       </ResponsiveContainer>
@@ -225,6 +229,7 @@ export function GraficoMeses({ porMes }: { porMes: TotalMes[] }) {
 
 export function GraficoCategorias({ porCategoria }: { porCategoria: TotalCategoria[] }) {
   const { oscuro } = useTema()
+  const reducido = useMovimientoReducido()
   const colores = coloresGrafico(oscuro)
   const puntos: Punto[] = porCategoria.map((item, indice) => {
     const valor = escala(item.total)
@@ -263,7 +268,9 @@ export function GraficoCategorias({ porCategoria }: { porCategoria: TotalCategor
               paddingAngle={2}
               cornerRadius={8}
               stroke="none"
-              isAnimationActive={false}
+              isAnimationActive={!reducido}
+              animationDuration={Number.parseInt(DURACION.grafico, 10)}
+              animationEasing="ease-out"
             >
               {dibujo.map((punto) => (
                 <Cell key={punto.clave} fill={punto.color} />

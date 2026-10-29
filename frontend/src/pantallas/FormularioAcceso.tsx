@@ -4,6 +4,7 @@ import { Link, Navigate } from "react-router"
 import { ErrorApi } from "../api/cliente"
 import { EsqueletoMarco } from "../componentes/esqueleto"
 import { Logotipo } from "../componentes/Logotipo"
+import { entrada } from "../movimiento"
 import { useSesion } from "../sesion"
 
 type Props = {
@@ -63,6 +64,7 @@ export function FormularioAcceso({ titulo, descripcion, enviarEtiqueta, alterno,
           borderWidth="0"
           borderRadius="l3"
           boxShadow="0 24px 60px rgba(28, 27, 23, 0.12)"
+          css={entrada}
           _dark={{ borderWidth: "1px", borderColor: "borde" }}
         >
           <Card.Header>

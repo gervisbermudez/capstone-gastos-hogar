@@ -4,6 +4,7 @@ import { Link } from "react-router"
 import type { Notificacion } from "../api/tipos"
 import { publicarPanel } from "../canalBus"
 import { useCanal } from "../canal"
+import { panel, pop } from "../movimiento"
 
 function IconoCampana() {
   return (
@@ -95,6 +96,7 @@ export function Campana() {
         <IconoCampana />
         {noLeidas > 0 ? (
           <Flex
+            key={noLeidas}
             aria-hidden="true"
             position="absolute"
             top="1"
@@ -110,6 +112,7 @@ export function Campana() {
             fontSize="10px"
             fontWeight="medium"
             lineHeight="1"
+            css={pop}
           >
             {noLeidas > 9 ? "9+" : noLeidas}
           </Flex>
@@ -133,6 +136,7 @@ export function Campana() {
           borderRadius="16px"
           boxShadow="0 16px 40px rgba(28, 27, 23, 0.16)"
           p={3}
+          css={panel}
         >
           <Flex align="center" justify="space-between" gap={3} mb={2} px={1}>
             <Text fontWeight="medium">Notificaciones</Text>

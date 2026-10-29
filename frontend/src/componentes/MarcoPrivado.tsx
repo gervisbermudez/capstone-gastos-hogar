@@ -4,6 +4,7 @@ import { Navigate, Outlet, useLocation, useNavigate } from "react-router"
 import { ProveedorCanal } from "../canal"
 import { useSesion } from "../sesion"
 import { useTema } from "../temaModo"
+import { DURACION, EASING, entrada } from "../movimiento"
 import { BarraLateral, type Seccion } from "./BarraLateral"
 import { Campana } from "./Campana"
 import { EsqueletoMarco } from "./esqueleto"
@@ -107,8 +108,24 @@ export function MarcoPrivado() {
                     }}
                   >
                     <Switch.HiddenInput />
-                    <Switch.Control bg="bg.hover" _checked={{ bg: "marca.sol" }}>
-                      <Switch.Thumb bg="fg" _checked={{ bg: "marca.carbon" }} />
+                    <Switch.Control
+                      bg="bg.hover"
+                      _checked={{ bg: "marca.sol" }}
+                      css={{
+                        transitionProperty: "background-color, background",
+                        transitionDuration: DURACION.rapida,
+                        transitionTimingFunction: EASING,
+                      }}
+                    >
+                      <Switch.Thumb
+                        bg="fg"
+                        _checked={{ bg: "marca.carbon" }}
+                        css={{
+                          transitionProperty: "translate, transform, background-color",
+                          transitionDuration: DURACION.rapida,
+                          transitionTimingFunction: EASING,
+                        }}
+                      />
                     </Switch.Control>
                     <Switch.Label srOnly>
                       {oscuro ? "Usar tema claro" : "Usar tema oscuro"}
@@ -118,6 +135,7 @@ export function MarcoPrivado() {
                 </Flex>
               </Flex>
               <Box
+                key={pathname}
                 as="main"
                 flex="1"
                 minH={0}
@@ -127,6 +145,7 @@ export function MarcoPrivado() {
                 overflow={pathname === "/chat" ? "hidden" : "auto"}
                 px={pathname === "/chat" ? 0 : { base: 4, md: 6 }}
                 py={pathname === "/chat" ? 0 : { base: 4, md: 6 }}
+                css={entrada}
               >
                 <Outlet />
               </Box>

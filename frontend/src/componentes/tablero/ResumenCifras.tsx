@@ -1,6 +1,8 @@
 import { Box, Flex, Grid, Heading, Stack, Text } from "@chakra-ui/react"
+import { useEffect, useState } from "react"
 import { EsqueletoCifras } from "../esqueleto"
 import { formatMonto } from "../../formato"
+import { DURACION, EASING, entradaEscalon, useMovimientoReducido } from "../../movimiento"
 
 const SOMBRA = "0 12px 40px rgba(28, 27, 23, 0.06)"
 const MONTO = /^\d+\.\d{2}$/
@@ -41,7 +43,7 @@ function textoConteo(valor: number | null): string {
   return String(valor)
 }
 
-function TarjetaCifra({ etiqueta, valor }: { etiqueta: string; valor: string }) {
+function TarjetaCifra({ etiqueta, valor, indice }: { etiqueta: string; valor: string; indice: number }) {
   return (
     <Stack
       gap={1}
@@ -51,6 +53,7 @@ function TarjetaCifra({ etiqueta, valor }: { etiqueta: string; valor: string }) 
       boxShadow={SOMBRA}
       px={4}
       py={3}
+      css={entradaEscalon(indice)}
       _dark={{ borderWidth: "1px", borderColor: "borde" }}
     >
       <Text fontSize="xs" color="fg.muted">
@@ -85,10 +88,32 @@ function Leyenda({ fondo, etiqueta, porcentaje }: { fondo: string; etiqueta: str
   )
 }
 
+function useAnchoCrecido(): boolean {
+  const reducido = useMovimientoReducido()
+  const [crecida, setCrecida] = useState(reducido)
+
+  useEffect(() => {
+    if (reducido) {
+      setCrecida(true)
+      return
+    }
+    const id = requestAnimationFrame(() => setCrecida(true))
+    return () => cancelAnimationFrame(id)
+  }, [reducido])
+
+  return crecida
+}
+
 function BarraParticipacion({ confirmados, borradores }: { confirmados: number; borradores: number }) {
+  const crecida = useAnchoCrecido()
   const suma = confirmados + borradores
   const pctConfirmados = Math.round((confirmados / suma) * 100)
   const pctBorradores = 100 - pctConfirmados
+  const tramo = {
+    transitionProperty: "width",
+    transitionDuration: DURACION.enfasis,
+    transitionTimingFunction: EASING,
+  }
   return (
     <Flex
       role="group"
@@ -107,10 +132,22 @@ function BarraParticipacion({ confirmados, borradores }: { confirmados: number; 
         css={{ width: "min(15rem, 100%)" }}
       >
         {confirmados > 0 ? (
-          <Box h="100%" flexShrink={0} w={`${(confirmados / suma) * 100}%`} bg="marca.sol" />
+          <Box
+            h="100%"
+            flexShrink={0}
+            w={crecida ? `${(confirmados / suma) * 100}%` : "0%"}
+            bg="marca.sol"
+            css={tramo}
+          />
         ) : null}
         {borradores > 0 ? (
-          <Box h="100%" flexShrink={0} w={`${(borradores / suma) * 100}%`} bg="fg" />
+          <Box
+            h="100%"
+            flexShrink={0}
+            w={crecida ? `${(borradores / suma) * 100}%` : "0%"}
+            bg="fg"
+            css={tramo}
+          />
         ) : null}
       </Flex>
       <Flex align="center" gap={3} wrap="wrap">
@@ -158,10 +195,10 @@ export function ResumenCifras({
         <EsqueletoCifras />
       ) : (
         <Grid templateColumns={columnas} gap={3}>
-          <TarjetaCifra etiqueta="Total gastado" valor={textoTotal(total)} />
-          <TarjetaCifra etiqueta="Comprobantes" valor={textoConteo(confirmados)} />
-          <TarjetaCifra etiqueta="Borradores" valor={textoConteo(borradores)} />
-          <TarjetaCifra etiqueta="Categorías" valor={textoConteo(categorias)} />
+          <TarjetaCifra indice={0} etiqueta="Total gastado" valor={textoTotal(total)} />
+          <TarjetaCifra indice={1} etiqueta="Comprobantes" valor={textoConteo(confirmados)} />
+          <TarjetaCifra indice={2} etiqueta="Borradores" valor={textoConteo(borradores)} />
+          <TarjetaCifra indice={3} etiqueta="Categorías" valor={textoConteo(categorias)} />
         </Grid>
       )}
       {cargando ? null : barraDe(confirmados, borradores)}

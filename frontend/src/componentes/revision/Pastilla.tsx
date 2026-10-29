@@ -1,5 +1,6 @@
 import { Box } from "@chakra-ui/react"
 import { type JSX, type ReactNode } from "react"
+import { transicionRapida } from "../../movimiento"
 
 export type TonoPastilla = "sol" | "carbon" | "gris" | "ok" | "aviso" | "falla"
 
@@ -31,6 +32,7 @@ export function Pastilla({ children, tono }: { children: ReactNode; tono: TonoPa
       fontWeight="medium"
       lineHeight="1.4"
       whiteSpace="nowrap"
+      css={transicionRapida}
     >
       {children}
     </Box>

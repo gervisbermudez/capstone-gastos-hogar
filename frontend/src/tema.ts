@@ -2,11 +2,13 @@ import {
   createSystem,
   defaultConfig,
   defineConfig,
+  defineKeyframes,
   defineRecipe,
   defineSemanticTokens,
   defineSlotRecipe,
   defineTokens,
 } from "@chakra-ui/react"
+import { DURACION, EASING } from "./movimiento"
 
 import "@fontsource/fraunces/400.css"
 import "@fontsource/fraunces/600.css"
@@ -37,6 +39,14 @@ const tokens = defineTokens({
     heading: { value: "'Outfit', system-ui, sans-serif" },
     body: { value: "'Outfit', system-ui, sans-serif" },
   },
+  durations: {
+    rapida: { value: DURACION.rapida },
+    entrada: { value: DURACION.entrada },
+    enfasis: { value: DURACION.enfasis },
+  },
+  easings: {
+    salida: { value: EASING },
+  },
 })
 
 export const sistema = createSystem(
@@ -66,8 +76,50 @@ export const sistema = createSystem(
       "[data-scope=toast][data-part=group]": {
         width: "min(24rem, calc(100vw - 2rem))",
       },
+      "a, tr": {
+        transitionProperty: "background-color, background, color, border-color, box-shadow",
+        transitionDuration: DURACION.rapida,
+        transitionTimingFunction: EASING,
+      },
+      "*": {
+        "@media (prefers-reduced-motion: reduce)": {
+          animationDuration: "0.01ms !important",
+          animationIterationCount: "1 !important",
+          transitionDuration: "0.01ms !important",
+          scrollBehavior: "auto !important",
+        },
+      },
+      "*::before, *::after": {
+        "@media (prefers-reduced-motion: reduce)": {
+          animationDuration: "0.01ms !important",
+          animationIterationCount: "1 !important",
+          transitionDuration: "0.01ms !important",
+        },
+      },
     },
     theme: {
+      keyframes: defineKeyframes({
+        surgir: {
+          from: { opacity: 0, transform: "translateY(6px)" },
+          to: { opacity: 1, transform: "translateY(0)" },
+        },
+        panel: {
+          from: { opacity: 0, transform: "translateY(4px)" },
+          to: { opacity: 1, transform: "translateY(0)" },
+        },
+        pop: {
+          from: { opacity: 0, transform: "scale(0.6)" },
+          to: { opacity: 1, transform: "scale(1)" },
+        },
+        puntos: {
+          "0%, 80%, 100%": { opacity: 0.25, transform: "translateY(0)" },
+          "40%": { opacity: 1, transform: "translateY(-2px)" },
+        },
+        indeterminada: {
+          from: { transform: "translateX(-120%)" },
+          to: { transform: "translateX(320%)" },
+        },
+      }),
       tokens,
       semanticTokens: defineSemanticTokens({
         colors: {
@@ -130,6 +182,10 @@ export const sistema = createSystem(
           base: {
             borderRadius: "full",
             fontWeight: "medium",
+            transitionProperty: "background-color, background, color, border-color, box-shadow, transform",
+            transitionDuration: DURACION.rapida,
+            transitionTimingFunction: EASING,
+            _active: { transform: "scale(0.98)" },
           },
         }),
         input: defineRecipe({
@@ -179,11 +235,11 @@ export const sistema = createSystem(
               willChange: "translate, opacity, scale",
               transitionProperty: "translate, scale, opacity, height, box-shadow",
               transitionDuration: "520ms, 520ms, 400ms, 420ms, 200ms",
-              transitionTimingFunction: "cubic-bezier(0.22, 1, 0.36, 1)",
+              transitionTimingFunction: EASING,
               _closed: {
                 transitionProperty: "translate, scale, opacity, height",
                 transitionDuration: "360ms, 360ms, 240ms, 320ms",
-                transitionTimingFunction: "cubic-bezier(0.22, 1, 0.36, 1)",
+                transitionTimingFunction: EASING,
               },
               boxShadow: "0 16px 40px rgba(28, 27, 23, 0.22)",
               borderWidth: "1px",
