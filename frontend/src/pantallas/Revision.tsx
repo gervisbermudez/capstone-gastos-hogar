@@ -337,7 +337,7 @@ export function Revision() {
   const location = useLocation()
   const estadoNavegacion = useRef(location.state)
   estadoNavegacion.current = location.state
-  const { email } = useSesion()
+  const { email, nombre: alias } = useSesion()
   const [documento, setDocumento] = useState<DocumentoDetalle | null>(null)
   const [form, setForm] = useState<BorradorFactura | null>(null)
   const [errores, setErrores] = useState<ErroresFactura>({})
@@ -868,7 +868,7 @@ export function Revision() {
                   etiqueta="Comprobante"
                   valor={form.numero_comprobante.trim() || "Sin número"}
                 />
-                <FilaDato icono={<IconoPersona />} etiqueta="Cargado por" valor={email?.trim() || "Tu cuenta"} />
+                <FilaDato icono={<IconoPersona />} etiqueta="Cargado por" valor={alias?.trim() || email?.trim() || "Tu cuenta"} />
                 <FilaDato icono={<IconoFecha />} etiqueta={etiquetaFecha} valor={formatFecha(marcaTiempo)} />
                 <FilaDato icono={<IconoBusqueda />} etiqueta="Búsqueda" valor={etiquetaBusqueda(documento)} />
                 <FilaDato icono={<IconoArchivo />} etiqueta="Archivo" valor={textoArchivo} />
@@ -1096,7 +1096,7 @@ export function Revision() {
                   </Stack>
                 </form>
                 <Stack gap={3} mt={4} pt={4} borderTopWidth="1px" borderColor="borde">
-                  <FilaDato icono={<IconoPersona />} etiqueta="Cargado por" valor={email?.trim() || "Tu cuenta"} />
+                  <FilaDato icono={<IconoPersona />} etiqueta="Cargado por" valor={alias?.trim() || email?.trim() || "Tu cuenta"} />
                   <FilaDato icono={<IconoFecha />} etiqueta={etiquetaFecha} valor={formatFecha(marcaTiempo)} />
                   <FilaDato icono={<IconoBusqueda />} etiqueta="Búsqueda" valor={etiquetaBusqueda(documento)} />
                   <FilaDato icono={<IconoArchivo />} etiqueta="Archivo" valor={textoArchivo} />

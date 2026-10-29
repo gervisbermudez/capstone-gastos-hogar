@@ -23,6 +23,7 @@ import {
   type CargaEstado,
   type FaseCarga,
   type ListaNotificaciones,
+  type ModeloActivo,
   type Notificacion,
   type TareaCreada,
   type TareaEstado,
@@ -276,11 +277,33 @@ function datosConfirmado(valor: Record<string, unknown>): Pick<DocumentoConfirma
   }
 }
 
+function nombreDeUsuario(valor: unknown): string | null {
+  if (valor == null) return null
+  if (typeof valor !== "string") throw new ErrorApi("La API no devolvió la sesión.", 0)
+  const texto = valor.trim()
+  return texto === "" ? null : texto
+}
+
 function asegurarUsuario(valor: unknown): UsuarioActual {
   if (!esObjeto(valor) || typeof valor.user_id !== "string" || valor.user_id === "" || typeof valor.email !== "string") {
     throw new ErrorApi("La API no devolvió la sesión.", 0)
   }
-  return { user_id: valor.user_id, email: valor.email }
+  return { user_id: valor.user_id, email: valor.email, nombre: nombreDeUsuario(valor.nombre) }
+}
+
+function esProveedor(valor: unknown): valor is ModeloActivo["proveedor"] {
+  return valor === "openai" || valor === "gemini"
+}
+
+function asegurarModelo(valor: unknown): ModeloActivo {
+  if (!esObjeto(valor) || !esProveedor(valor.proveedor)) {
+    throw new ErrorApi("La API no devolvió el modelo.", 0)
+  }
+  if (valor.modelo != null && typeof valor.modelo !== "string") {
+    throw new ErrorApi("La API no devolvió el modelo.", 0)
+  }
+  const texto = typeof valor.modelo === "string" ? valor.modelo.trim() : ""
+  return { proveedor: valor.proveedor, modelo: texto === "" ? null : texto }
 }
 
 function textoOpcional(valor: unknown): string | undefined {
@@ -746,6 +769,14 @@ export const cliente = {
 
   cambiarEmail(email: string, password: string): Promise<UsuarioActual> {
     return pedirCuenta("/auth/email", "POST", { email, password }, [200]).then(asegurarUsuario)
+  },
+
+  cambiarNombre(nombre: string | null): Promise<UsuarioActual> {
+    return pedirCuenta("/auth/nombre", "POST", { nombre }, [200]).then(asegurarUsuario)
+  },
+
+  modelo(signal?: AbortSignal): Promise<ModeloActivo> {
+    return pedir("/auth/modelo", { signal, esperado: 200 }).then(asegurarModelo)
   },
 
   cambiarPassword(passwordActual: string, passwordNueva: string): Promise<void> {

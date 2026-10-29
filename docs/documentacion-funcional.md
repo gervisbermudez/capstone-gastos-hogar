@@ -1,6 +1,6 @@
 # Documentación funcional
 
-Estado de **Capstone** al 23 de octubre de 2026. Describe lo que la aplicación hace hoy para una persona que la usa. El contrato de rutas sigue en [`FUENTE-DE-LA-VERDAD.md`](../FUENTE-DE-LA-VERDAD.md). Cómo levantarla está en [`README.md`](../README.md).
+Estado de **Capstone** al 29 de octubre de 2026. Describe lo que la aplicación hace hoy para una persona que la usa. El contrato de rutas sigue en [`FUENTE-DE-LA-VERDAD.md`](../FUENTE-DE-LA-VERDAD.md). Cómo levantarla está en [`README.md`](../README.md).
 
 ## Para qué sirve
 
@@ -27,7 +27,7 @@ Hay dos recuerdos y no se mezclan:
 
 Quien no tiene sesión solo ve **Ingresar** (`/ingreso`) y **Crear cuenta** (`/registro`). El resto pide sesión. Si el token no sirve, vuelve al ingreso.
 
-Con sesión, el encabezado muestra el email y las secciones **Tablero** (`/`), **Registros**, **Categorías**, **Cargar**, **Chat** (`/chat`) y **Opciones** (`/opciones`). El email abre **Opciones**. **Salir** cierra la sesión de esa pestaña.
+Con sesión, la barra superior tiene el interruptor de tema oscuro al lado de las notificaciones. La barra lateral lista **Tablero** (`/`), **Registros**, **Categorías**, **Cargar** y **Chat** (`/chat`). Abajo, el nombre —o el email, si no hay nombre— queda al lado de un menú de **Opciones** con Cuenta, Apariencia, Modelo y Sesión (`/opciones`). **Salir** cierra la sesión de esa pestaña.
 
 | Pantalla | Qué muestra |
 | --- | --- |
@@ -35,7 +35,7 @@ Con sesión, el encabezado muestra el email y las secciones **Tablero** (`/`), *
 | Tablero | Período, gráficos, carga, borradores y confirmados. |
 | Revisión (`/documentos/:id`) | Vista previa, texto leído y formulario. |
 | Chat | Conversaciones, ejemplos, mensajes y, si hace falta, aprobar o rechazar. |
-| Opciones (`/opciones`) | Email, cambio de email, cambio de contraseña, duración de la sesión y eliminar la cuenta. El modelo y el índice los configura quien levanta la aplicación: la pantalla no pide ni muestra claves. |
+| Opciones (`/opciones`) | Nombre que se muestra en lugar del email, cambio de email y de contraseña, tema oscuro, proveedor y modelo en uso, duración de la sesión y eliminar la cuenta. No pide ni muestra claves. |
 
 Si no hay borradores ni confirmados en el período, el tablero muestra tres pasos: cargar, revisar y confirmar, preguntar en el chat.
 
@@ -45,7 +45,7 @@ El registro pide email y contraseña. El texto de la pantalla pide una frase lar
 
 Al entrar, la pestaña guarda el token. Dura 15 minutos. Cerrar la pestaña o salir lo borra, junto con el chat guardado en esa pestaña. Otra pestaña no comparte esa sesión.
 
-Con la sesión abierta se puede cambiar el email y la contraseña. Hace falta la contraseña actual. Si no coincide, lo dice y no cambia nada. Si el email es de otra cuenta, lo dice.
+Con la sesión abierta se puede guardar un nombre. No pide contraseña y no sirve para entrar: si está vacío, la barra, el saludo y «Cargado por» siguen mostrando el email. También se pueden cambiar el email y la contraseña. Para eso hace falta la contraseña actual. Si no coincide, lo dice y no cambia nada. Si el email es de otra cuenta, lo dice.
 
 Eliminar la cuenta pide la contraseña y escribir el email, y borra comprobantes, borradores, categorías, conversaciones y archivos de esa persona. No es recuperación de contraseña olvidada.
 

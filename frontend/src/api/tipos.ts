@@ -38,6 +38,12 @@ export type Token = {
 export type UsuarioActual = {
   user_id: string
   email: string
+  nombre: string | null
+}
+
+export type ModeloActivo = {
+  proveedor: "openai" | "gemini"
+  modelo: string | null
 }
 
 export type CamposDocumento = {

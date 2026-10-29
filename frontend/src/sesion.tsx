@@ -3,15 +3,18 @@ import { useNavigate } from "react-router"
 import { guardarToken, leerToken, olvidarHilo, olvidarSesion } from "./almacen"
 import { olvidarResumenes } from "./api/cacheResumen"
 import { ErrorApi, cliente, esAbort, registrarNoAutorizado } from "./api/cliente"
+import type { UsuarioActual } from "./api/tipos"
 import { olvidarVistas } from "./vistas"
 
 type Sesion = {
   token: string | null
   email: string | null
+  nombre: string | null
   listo: boolean
   entrar: (accessToken: string) => void
   salir: () => void
-  actualizarEmail: (email: string) => void
+  aplicarUsuario: (usuario: UsuarioActual) => void
+  actualizarNombre: (nombre: string | null) => void
 }
 
 const ContextoSesion = createContext<Sesion | null>(null)
@@ -20,8 +23,9 @@ export function ProveedorSesion({ children }: { children: ReactNode }) {
   const navigate = useNavigate()
   const [token, setToken] = useState<string | null>(() => leerToken())
   const [email, setEmail] = useState<string | null>(null)
+  const [nombre, setNombre] = useState<string | null>(null)
   const [listo, setListo] = useState(() => leerToken() === null)
-  const versionEmail = useRef(0)
+  const versionUsuario = useRef(0)
 
   const salir = useCallback(() => {
     olvidarSesion()
@@ -29,6 +33,7 @@ export function ProveedorSesion({ children }: { children: ReactNode }) {
     olvidarVistas()
     setToken(null)
     setEmail(null)
+    setNombre(null)
     setListo(true)
   }, [])
 
@@ -40,9 +45,15 @@ export function ProveedorSesion({ children }: { children: ReactNode }) {
     setListo(true)
   }, [])
 
-  const actualizarEmail = useCallback((nuevoEmail: string) => {
-    versionEmail.current += 1
-    setEmail(nuevoEmail)
+  const aplicarUsuario = useCallback((usuario: UsuarioActual) => {
+    versionUsuario.current += 1
+    setEmail(usuario.email)
+    setNombre(usuario.nombre)
+  }, [])
+
+  const actualizarNombre = useCallback((nombre: string | null) => {
+    versionUsuario.current += 1
+    setNombre(nombre)
   }, [])
 
   useEffect(() => {
@@ -55,16 +66,20 @@ export function ProveedorSesion({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!token) {
       setEmail(null)
+      setNombre(null)
       setListo(true)
       return
     }
     const ctrl = new AbortController()
     let cancelado = false
-    const version = versionEmail.current
+    const version = versionUsuario.current
     cliente
       .yo(ctrl.signal)
       .then((usuario) => {
-        if (!cancelado && versionEmail.current === version) setEmail(usuario.email)
+        if (!cancelado && versionUsuario.current === version) {
+          setEmail(usuario.email)
+          setNombre(usuario.nombre)
+        }
       })
       .catch((error: unknown) => {
         if (cancelado || esAbort(error) || error instanceof ErrorApi) return
@@ -79,8 +94,8 @@ export function ProveedorSesion({ children }: { children: ReactNode }) {
   }, [token])
 
   const valor = useMemo(
-    () => ({ token, email, listo, entrar, salir, actualizarEmail }),
-    [token, email, listo, entrar, salir, actualizarEmail],
+    () => ({ token, email, nombre, listo, entrar, salir, aplicarUsuario, actualizarNombre }),
+    [token, email, nombre, listo, entrar, salir, aplicarUsuario, actualizarNombre],
   )
 
   return <ContextoSesion.Provider value={valor}>{children}</ContextoSesion.Provider>

@@ -83,18 +83,20 @@ function IconoChat() {
   )
 }
 
-function IconoOpciones() {
+function IconoMenuVertical() {
   return (
-    <Icono>
-      <circle cx="8" cy="8" r="1.85" stroke="currentColor" strokeWidth="1.5" />
-      <circle cx="8" cy="8" r="3.9" stroke="currentColor" strokeWidth="1.5" />
-      <path
-        d="M8 1.15v2.95M8 11.9v2.95M1.15 8h2.95M11.9 8h2.95M3.16 3.16l2.08 2.08M10.76 10.76l2.08 2.08M12.84 3.16l-2.08 2.08M5.24 10.76l-2.08 2.08"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-      />
-    </Icono>
+    <svg
+      aria-hidden="true"
+      width="20"
+      height="20"
+      viewBox="0 0 20 20"
+      fill="none"
+      style={{ display: "block", flexShrink: 0, width: 20, height: 20 }}
+    >
+      <circle cx="10" cy="3.5" r="1.7" fill="currentColor" />
+      <circle cx="10" cy="10" r="1.7" fill="currentColor" />
+      <circle cx="10" cy="16.5" r="1.7" fill="currentColor" />
+    </svg>
   )
 }
 
@@ -206,7 +208,7 @@ export function BarraLateral({ activo, email, alias, onSalir, onNavigate }: Prop
                     : { bg: "bg.hover", color: "fg" }
                 }
               >
-                <IconoOpciones />
+                <IconoMenuVertical />
               </Button>
             </Menu.Trigger>
             <Portal>

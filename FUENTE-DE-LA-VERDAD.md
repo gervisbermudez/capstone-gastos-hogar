@@ -104,9 +104,9 @@ Respuesta de registro `201`. Respuesta de login `200`:
 
 `409` si el email ya existe. `401` si el login falla, sin indicar cuál de los dos campos estuvo mal.
 
-`GET /auth/me` → `200` `{ "user_id": "...", "email": "ada@example.com" }`.
+`GET /auth/me` → `200` `{ "user_id": "...", "email": "ada@example.com", "nombre": null }`. `nombre` es el alias. Si no hay, la clave igual va en `null`.
 
-`POST /auth/email`, `POST /auth/password` y `DELETE /auth/cuenta` llevan `Authorization: Bearer <access_token>`. El body no lleva `user_id`.
+`POST /auth/email`, `POST /auth/nombre`, `GET /auth/modelo`, `POST /auth/password` y `DELETE /auth/cuenta` llevan `Authorization: Bearer <access_token>`. El body no lleva `user_id`.
 
 `POST /auth/email`
 
@@ -114,13 +114,23 @@ Respuesta de registro `201`. Respuesta de login `200`:
 { "email": "ada@example.com", "password": "una frase larga" }
 ```
 
-`200`, con el email normalizado a minúsculas:
+`200`, con el email normalizado a minúsculas y el alias intacto:
 
 ```json
-{ "user_id": "...", "email": "ada@example.com" }
+{ "user_id": "...", "email": "ada@example.com", "nombre": null }
 ```
 
 `401` `{ "detail": "La contraseña no coincide." }` y no cambia el email. `409` `{ "detail": "Ese email ya está registrado" }` si es de otra cuenta. El mismo email de la propia cuenta responde `200`.
+
+`POST /auth/nombre`
+
+```json
+{ "nombre": "Ada" }
+```
+
+`200` con el mismo objeto que `GET /auth/me`. No pide contraseña y el alias no es único. `null`, vacío o solo espacios borra el alias. Después de recortar, como máximo 40 caracteres: letras, números, espacios, `_` y `-`. Si no cumple, `422` y el valor anterior queda.
+
+`GET /auth/modelo` → `200` `{ "proveedor": "openai", "modelo": "gpt-4.1" }`. `proveedor` es `openai` o `gemini`, según `LLM_PROVIDER`. El nombre sale de `OPENAI_MODEL` o `GEMINI_MODEL`. Si esa variable falta, `modelo` es `null`. No arma el cliente y no devuelve claves.
 
 `POST /auth/password`
 

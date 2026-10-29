@@ -10,9 +10,11 @@ import { useSesion } from "../sesion"
 
 const SOMBRA = "0 12px 40px rgba(28, 27, 23, 0.06)"
 
-function saludoDe(email: string | null): string {
-  const nombre = email?.split("@")[0]?.trim() ?? ""
-  return nombre ? `Hola, ${nombre}` : "Hola"
+function saludoDe(email: string | null, nombre: string | null): string {
+  const alias = nombre?.trim() ?? ""
+  if (alias) return `Hola, ${alias}`
+  const local = email?.split("@")[0]?.trim() ?? ""
+  return local ? `Hola, ${local}` : "Hola"
 }
 
 function totalGastado(totales: readonly string[]): string | null {
@@ -103,7 +105,7 @@ function AlertaError({ titulo, detalle, alReintentar }: { titulo?: string; detal
 }
 
 export function Tablero() {
-  const { email } = useSesion()
+  const { email, nombre } = useSesion()
   const {
     periodo,
     resumen,
@@ -123,7 +125,7 @@ export function Tablero() {
   return (
     <Stack gap={{ base: 6, md: 8 }}>
       <ResumenCifras
-        saludo={saludoDe(email)}
+        saludo={saludoDe(email, nombre)}
         etiquetaPeriodo={periodo.etiqueta}
         total={resumenVisible ? totalGastado(resumenVisible.por_mes.map((mes) => mes.total)) : null}
         confirmados={resumenVisible ? resumenVisible.comprobantes.length : null}

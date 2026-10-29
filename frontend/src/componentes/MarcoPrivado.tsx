@@ -19,7 +19,7 @@ function seccionActiva(pathname: string): Seccion | null {
 }
 
 export function MarcoPrivado() {
-  const { token, listo, email, salir } = useSesion()
+  const { token, listo, email, nombre, salir } = useSesion()
   const { oscuro, alternar } = useTema()
   const navigate = useNavigate()
   const { pathname } = useLocation()
@@ -69,7 +69,7 @@ export function MarcoPrivado() {
             minH={0}
             bg="bg.subtle"
           >
-            <BarraLateral activo={seccionActiva(pathname)} email={email} alias={null} onSalir={alSalir} />
+            <BarraLateral activo={seccionActiva(pathname)} email={email} alias={nombre} onSalir={alSalir} />
           </Box>
           <ProveedorCanal>
             <Flex direction="column" flex="1" minW={0} minH={0}>
@@ -110,6 +110,9 @@ export function MarcoPrivado() {
                     <Switch.Control bg="bg.hover" _checked={{ bg: "marca.sol" }}>
                       <Switch.Thumb bg="fg" _checked={{ bg: "marca.carbon" }} />
                     </Switch.Control>
+                    <Switch.Label srOnly>
+                      {oscuro ? "Usar tema claro" : "Usar tema oscuro"}
+                    </Switch.Label>
                   </Switch.Root>
                   <Campana />
                 </Flex>
@@ -148,7 +151,7 @@ export function MarcoPrivado() {
                 <BarraLateral
                   activo={seccionActiva(pathname)}
                   email={email}
-                  alias={null}
+                  alias={nombre}
                   onSalir={alSalir}
                   onNavigate={() => setMenuAbierto(false)}
                 />
