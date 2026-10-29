@@ -112,6 +112,46 @@ def test_chat_done_avisa_con_ruta_al_hilo(tmp_path, monkeypatch) -> None:
     asyncio.run(caso())
 
 
+def test_marcar_cortadas_reencola_la_recibida_que_no_esta_en_la_cola() -> None:
+    async def caso() -> None:
+        from app.cargas import QUEUE_KEY, marcar_cortadas
+        from app.cargas import guardar as guardar_carga
+        from app.cargas import leer as leer_carga
+
+        redis = RedisMemoria()
+        await guardar_carga(
+            redis,
+            {
+                "job_id": "job-fuera",
+                "user_id": "ana",
+                "fase": "recibida",
+                "documento_id": None,
+                "mensaje": None,
+            },
+        )
+        await guardar_carga(
+            redis,
+            {
+                "job_id": "job-en-cola",
+                "user_id": "ana",
+                "fase": "recibida",
+                "documento_id": None,
+                "mensaje": None,
+            },
+        )
+        await redis.rpush(QUEUE_KEY, "job-en-cola")
+
+        assert await marcar_cortadas(redis) == 0
+        assert redis.listas[QUEUE_KEY].count("job-en-cola") == 1
+        assert redis.listas[QUEUE_KEY].count("job-fuera") == 1
+        fuera = await leer_carga(redis, "job-fuera")
+        en_cola = await leer_carga(redis, "job-en-cola")
+        assert fuera is not None and fuera["fase"] == "recibida"
+        assert en_cola is not None and en_cola["fase"] == "recibida"
+
+    asyncio.run(caso())
+
+
 def test_borrar_la_cuenta_tambien_borra_la_bandeja(tmp_path, monkeypatch) -> None:
     _entorno(monkeypatch, tmp_path)
 

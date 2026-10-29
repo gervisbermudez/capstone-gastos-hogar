@@ -78,6 +78,24 @@ class RedisMemoria:
             return None
         return nombre, lista.pop(0)
 
+    async def lrange(self, nombre: str, inicio: int, fin: int) -> list[str]:
+        # Redis incluye ``fin``. Un índice negativo cuenta desde el final.
+        lista = self.listas.get(nombre) or []
+        n = len(lista)
+        if n == 0:
+            return []
+        if inicio < 0:
+            inicio += n
+        if fin < 0:
+            fin += n
+        if inicio < 0:
+            inicio = 0
+        if fin >= n:
+            fin = n - 1
+        if inicio > fin or inicio >= n:
+            return []
+        return list(lista[inicio : fin + 1])
+
     async def incr(self, nombre: str) -> int:
         valor = int(self.datos.get(nombre) or 0) + 1
         self.datos[nombre] = str(valor)

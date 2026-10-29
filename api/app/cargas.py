@@ -182,8 +182,18 @@ async def procesar_carga(redis, job_id: str) -> None:
 
 
 async def marcar_cortadas(redis) -> int:
-    """Una ``extrayendo`` al arrancar murió a mitad de camino. No se reencola."""
+    """Al arrancar, cierra lo que el proceso anterior dejó a medias.
+
+    ``extrayendo`` murió en el medio: queda en falla y no se reencola.
+    ``recibida`` que ya no está en la cola se perdió al caer: vuelve a entrar.
+    Si el reencolado falla, queda en falla. Si sigue en la cola, no se toca.
+    """
     cortadas = 0
+    en_cola = set()
+    for item in await redis.lrange(QUEUE_KEY, 0, -1) or []:
+        if isinstance(item, bytes):
+            item = item.decode()
+        en_cola.add(str(item))
     async for clave in redis.scan_iter(match=f"{DATA_PREFIX}*"):
         crudo = await redis.get(clave)
         if not crudo:
@@ -191,9 +201,29 @@ async def marcar_cortadas(redis) -> int:
         if isinstance(crudo, bytes):
             crudo = crudo.decode()
         job = json.loads(crudo)
-        if job.get("fase") != EXTRAYENDO:
+        fase = job.get("fase")
+        job_id = str(job.get("job_id") or "")
+        if fase == RECIBIDA:
+            if not job_id or job_id in en_cola:
+                continue
+            try:
+                await redis.rpush(QUEUE_KEY, job_id)
+            except Exception as exc:
+                logger.warning(
+                    "No se pudo reencolar la carga %s: %s",
+                    job_id,
+                    type(exc).__name__,
+                )
+                await _fallar(redis, job, MENSAJE_CORTE, "reinicio")
+                cortadas += 1
+                logger.warning("Carga %s quedó en falla por un reinicio", job_id)
+            else:
+                en_cola.add(job_id)
+                logger.info("Carga %s volvió a la cola tras un reinicio", job_id)
             continue
-        await borrar_pendiente(str(job.get("user_id") or ""), str(job.get("job_id") or ""))
+        if fase != EXTRAYENDO:
+            continue
+        await borrar_pendiente(str(job.get("user_id") or ""), job_id)
         job["fase"] = FALLA
         job["mensaje"] = MENSAJE_CORTE
         job["error"] = "reinicio"
@@ -224,3 +254,13 @@ async def worker_cargas(redis, stop: asyncio.Event) -> None:
             await procesar_carga(redis, job_id)
         except Exception as exc:
             logger.error("Carga %s no se pudo procesar: %s", job_id, type(exc).__name__)
+            try:
+                job = await leer(redis, job_id)
+                if job is not None and job.get("fase") not in {LISTA, FALLA}:
+                    await _fallar(redis, job, MENSAJE_FALLA, type(exc).__name__)
+            except Exception as fallo:
+                logger.error(
+                    "Carga %s no se pudo marcar en falla: %s",
+                    job_id,
+                    type(fallo).__name__,
+                )
