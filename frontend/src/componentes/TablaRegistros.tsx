@@ -1,20 +1,39 @@
-import { Box, Button, Card, Flex, Stack, Table, Text } from "@chakra-ui/react"
+import { Box, Button, Card, Flex, Menu, Portal, Stack, Table, Text } from "@chakra-ui/react"
 import { type ReactNode } from "react"
-import { Link } from "react-router"
-import {
-  ETIQUETA_CATEGORIA,
-  type CamposDocumento,
-  type DocumentoListado,
-  type EstadoDocumento,
-} from "../api/tipos"
+import { useNavigate } from "react-router"
+import { etiquetaCategoria, type CamposDocumento, type DocumentoListado, type EstadoDocumento } from "../api/tipos"
 import { formatMonto } from "../formato"
+import { IconoPuntos } from "./revision/iconos"
 
 const SOMBRA = "0 12px 40px rgba(28, 27, 23, 0.06)"
 const BORDE = "borde"
 const HOVER_FILA = "rgba(245, 203, 92, 0.45)"
 
+const itemMenu = {
+  px: 3,
+  py: 2,
+  mx: 1,
+  borderRadius: "12px",
+  cursor: "pointer",
+  color: "fg",
+  _highlighted: { bg: "bg.subtle" },
+} as const
+
+const itemPeligro = {
+  ...itemMenu,
+  color: "estadoTexto.falla",
+  _highlighted: { bg: "estado.fallaFondo", color: "estado.falla" },
+} as const
+
 type Props = {
   items: DocumentoListado[]
+  bloqueadoId: string | null
+  onAnular: (item: DocumentoListado) => void
+  onEliminar: (item: DocumentoListado) => void
+}
+
+function vigente(item: DocumentoListado): boolean {
+  return item.estado === "confirmado" && item.anulado !== true
 }
 
 function proveedorDe(campos: CamposDocumento): string {
@@ -34,7 +53,7 @@ function inicialesDe(nombre: string): string {
 }
 
 function categoriaDe(campos: CamposDocumento): string {
-  return campos.categoria ? ETIQUETA_CATEGORIA[campos.categoria] : "Sin categoría"
+  return etiquetaCategoria(campos.categoria)
 }
 
 function periodoDe(campos: CamposDocumento): string {
@@ -151,18 +170,92 @@ function Proveedor({ campos }: { campos: CamposDocumento }) {
   )
 }
 
-function BotonVer({ id }: { id: string }) {
+function etiquetaAcciones(item: DocumentoListado): string {
+  const proveedor = proveedorDe(item.campos)
+  const numero = item.campos.numero_comprobante?.trim()
+  return numero ? `Acciones de ${proveedor}, comprobante ${numero}` : `Acciones de ${proveedor}`
+}
+
+function MenuRegistro({
+  item,
+  bloqueado,
+  onAnular,
+  onEliminar,
+}: {
+  item: DocumentoListado
+  bloqueado: boolean
+  onAnular: (item: DocumentoListado) => void
+  onEliminar: (item: DocumentoListado) => void
+}) {
+  const navigate = useNavigate()
+  const corregir = vigente(item)
+
   return (
-    <Button
-      asChild
-      size="sm"
-      variant="outline"
-      borderRadius="full"
-      color="fg"
-      alignSelf="flex-start"
-    >
-      <Link to={`/documentos/${id}`}>Ver</Link>
-    </Button>
+    <Menu.Root positioning={{ placement: "bottom-end" }}>
+      <Menu.Trigger asChild>
+        <Button
+          type="button"
+          aria-label={etiquetaAcciones(item)}
+          size="sm"
+          variant="ghost"
+          borderRadius="full"
+          flexShrink={0}
+          minW={8}
+          h={8}
+          px={2}
+          color="fg"
+          disabled={bloqueado}
+          _hover={{ bg: "bg.hover", color: "fg" }}
+        >
+          <IconoPuntos />
+        </Button>
+      </Menu.Trigger>
+      <Portal>
+        <Menu.Positioner zIndex={2000}>
+          <Menu.Content
+            bg="bg.panel"
+            borderWidth="1px"
+            borderColor="borde"
+            borderRadius="16px"
+            boxShadow={SOMBRA}
+            minW="11rem"
+            py={1}
+          >
+            <Menu.Item value="ver" onClick={() => navigate(`/documentos/${item.id}`)} css={itemMenu}>
+              Ver
+            </Menu.Item>
+            {corregir ? (
+              <Menu.Item
+                value="editar"
+                onClick={() => navigate(`/documentos/${item.id}`, { state: { corregir: true } })}
+                css={itemMenu}
+              >
+                Editar
+              </Menu.Item>
+            ) : null}
+            <Menu.Item
+              value="chat"
+              onClick={() =>
+                navigate(`/chat?comprobante=${encodeURIComponent(item.id)}`, {
+                  state: { nuevoComprobante: item.id },
+                })
+              }
+              css={itemMenu}
+            >
+              Chat
+            </Menu.Item>
+            {corregir ? (
+              <Menu.Item value="anular" onClick={() => onAnular(item)} css={itemPeligro}>
+                Anular
+              </Menu.Item>
+            ) : null}
+            <Menu.Item value="eliminar" onClick={() => onEliminar(item)} css={itemPeligro}>
+              Eliminar
+            </Menu.Item>
+          </Menu.Content>
+        </Menu.Positioner>
+      </Portal>
+    </Menu.Root>
   )
 }
 
@@ -193,14 +286,27 @@ function Celda({ children }: { children: ReactNode }) {
   )
 }
 
-function TarjetaRegistro({ item }: { item: DocumentoListado }) {
+function TarjetaRegistro({
+  item,
+  bloqueado,
+  onAnular,
+  onEliminar,
+}: {
+  item: DocumentoListado
+  bloqueado: boolean
+  onAnular: (item: DocumentoListado) => void
+  onEliminar: (item: DocumentoListado) => void
+}) {
   return (
     <Card.Root size="sm" bg="bg.panel" borderWidth="0" borderRadius="20px" boxShadow={SOMBRA} _dark={{ borderWidth: "1px", borderColor: "borde" }}>
       <Card.Body>
         <Stack gap={3}>
           <Flex justify="space-between" gap={3} align="center" minW={0}>
             <Proveedor campos={item.campos} />
-            {nodoEstado(item.estado)}
+            <Flex align="center" gap={1} flexShrink={0}>
+              {nodoEstado(item.estado)}
+              <MenuRegistro item={item} bloqueado={bloqueado} onAnular={onAnular} onEliminar={onEliminar} />
+            </Flex>
           </Flex>
           <Text fontSize="sm" color="fg.muted">
             {categoriaDe(item.campos)} · {periodoDe(item.campos)}
@@ -225,19 +331,24 @@ function TarjetaRegistro({ item }: { item: DocumentoListado }) {
               <Text fontSize="sm">{textoIndexado(item)}</Text>
             </Flex>
           </Flex>
-          <BotonVer id={item.id} />
         </Stack>
       </Card.Body>
     </Card.Root>
   )
 }
 
-export function TablaRegistros({ items }: Props) {
+export function TablaRegistros({ items, bloqueadoId, onAnular, onEliminar }: Props) {
   return (
     <>
       <Stack gap={3} display={{ base: "flex", md: "none" }}>
         {items.map((item) => (
-          <TarjetaRegistro key={item.id} item={item} />
+          <TarjetaRegistro
+            key={item.id}
+            item={item}
+            bloqueado={bloqueadoId === item.id}
+            onAnular={onAnular}
+            onEliminar={onEliminar}
+          />
         ))}
       </Stack>
       <Box
@@ -259,7 +370,11 @@ export function TablaRegistros({ items }: Props) {
                 <Encabezado>Estado</Encabezado>
                 <Encabezado>Anulado</Encabezado>
                 <Encabezado>Texto</Encabezado>
-                <Encabezado />
+                <Encabezado>
+                  <Text as="span" srOnly>
+                    Acciones
+                  </Text>
+                </Encabezado>
               </Table.Row>
             </Table.Header>
             <Table.Body>
@@ -285,7 +400,12 @@ export function TablaRegistros({ items }: Props) {
                   <Celda>{nodoAnulado(item)}</Celda>
                   <Celda>{textoIndexado(item)}</Celda>
                   <Celda>
-                    <BotonVer id={item.id} />
+                    <MenuRegistro
+                      item={item}
+                      bloqueado={bloqueadoId === item.id}
+                      onAnular={onAnular}
+                      onEliminar={onEliminar}
+                    />
                   </Celda>
                 </Table.Row>
               ))}

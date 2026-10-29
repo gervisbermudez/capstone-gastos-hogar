@@ -1,8 +1,8 @@
-import { ETIQUETA_CATEGORIA, type Categoria, type DocumentoListado } from "../api/tipos"
+import { etiquetaCategoria, type DocumentoListado } from "../api/tipos"
 import { formatMonto } from "../formato"
 
 export type FiltroEstado = "todos" | "borrador" | "confirmado"
-export type FiltroCategoria = "todas" | "sin" | Categoria
+export type FiltroCategoria = string
 
 export type FiltrosRegistros = {
   desde: string
@@ -101,7 +101,7 @@ function valoresTexto(item: DocumentoListado): string[] {
   return [
     campos.proveedor ?? "",
     categoria ?? "",
-    categoria === undefined ? "Sin categoría" : ETIQUETA_CATEGORIA[categoria],
+    etiquetaCategoria(categoria),
     campos.periodo ?? "",
     campos.numero_comprobante ?? "",
     campos.monto ?? "",

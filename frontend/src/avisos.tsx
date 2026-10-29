@@ -59,6 +59,7 @@ export function Avisos() {
               {aviso.title ? <Toast.Title>{aviso.title}</Toast.Title> : null}
               {aviso.description ? <Toast.Description>{aviso.description}</Toast.Description> : null}
             </Stack>
+            {aviso.action ? <Toast.ActionTrigger>{aviso.action.label}</Toast.ActionTrigger> : null}
             {aviso.closable ? <Toast.CloseTrigger aria-label="Cerrar aviso" /> : null}
           </Toast.Root>
         )}

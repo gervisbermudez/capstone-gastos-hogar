@@ -1,6 +1,6 @@
 import { Badge, Box, Button, Card, Flex, Stack, Table, Text } from "@chakra-ui/react"
 import { Link } from "react-router"
-import { ETIQUETA_CATEGORIA, type CamposDocumento, type EstadoDocumento } from "../../api/tipos"
+import { etiquetaCategoria, type CamposDocumento, type EstadoDocumento } from "../../api/tipos"
 import { formatMonto } from "../../formato"
 
 const SOMBRA = "0 12px 40px rgba(28, 27, 23, 0.06)"
@@ -10,7 +10,7 @@ function proveedorDe(campos: CamposDocumento): string {
 }
 
 function categoriaDe(campos: CamposDocumento): string {
-  return campos.categoria ? ETIQUETA_CATEGORIA[campos.categoria] : "Sin categoría"
+  return etiquetaCategoria(campos.categoria)
 }
 
 function periodoDe(campos: CamposDocumento): string {

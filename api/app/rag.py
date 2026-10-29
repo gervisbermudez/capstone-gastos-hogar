@@ -30,7 +30,6 @@ NAMESPACE = "comprobantes"
 EMBEDDING_DIM = 384
 TOP_K = 5
 
-_CATEGORIAS = {"servicios", "expensas", "alquiler"}
 _PERIODO = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 
 _candado = threading.Lock()
@@ -102,7 +101,7 @@ def indexar_sync(
     proveedor = proveedor.strip()
     if not user_id or not documento_id:
         raise ValueError("Faltan user_id o documento_id")
-    if categoria not in _CATEGORIAS:
+    if not categoria or len(categoria) > 80:
         raise ValueError("Categoría inválida")
     if _PERIODO.fullmatch(periodo) is None:
         raise ValueError("El período tiene que ser YYYY-MM")
@@ -238,6 +237,36 @@ def olvidar_usuario(user_id: str) -> None:
     try:
         store = _store_pinecone()
         store.delete(filter={"user_id": user_id}, namespace=NAMESPACE)
+    except Exception as exc:
+        logger.warning("No se pudo borrar el índice remoto (%s).", type(exc).__name__)
+
+
+def olvidar_documento(user_id: str, documento_id: str) -> None:
+    """Saca los chunks de ese comprobante. No toca los de otra persona."""
+    user_id = (user_id or "").strip()
+    documento_id = (documento_id or "").strip()
+    if not user_id or not documento_id:
+        return
+    with _candado:
+        filas = _cargar_bloqueado()
+        restantes = [
+            fila
+            for fila in filas
+            if not (
+                isinstance(fila, dict)
+                and fila.get("user_id") == user_id
+                and fila.get("documento_id") == documento_id
+            )
+        ]
+        if len(restantes) != len(filas):
+            _documentos_global(restantes)
+            _escribir(restantes)
+    try:
+        store = _store_pinecone()
+        store.delete(
+            filter={"user_id": user_id, "documento_id": documento_id},
+            namespace=NAMESPACE,
+        )
     except Exception as exc:
         logger.warning("No se pudo borrar el índice remoto (%s).", type(exc).__name__)
 

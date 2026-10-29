@@ -20,7 +20,7 @@ export function Cargar() {
           Cargar comprobante
         </Heading>
         <Text color="fg.muted" fontSize={{ base: "md", md: "lg" }} lineHeight="1.5">
-          Lo leemos y lo dejamos en borrador para que revises el monto antes de confirmarlo.
+          Lo leemos y lo dejamos en borrador para que confirmes el monto.
         </Text>
       </Stack>
       <Box

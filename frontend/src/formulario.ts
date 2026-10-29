@@ -1,8 +1,8 @@
-import type { CamposDocumento, Categoria, Factura } from "./api/tipos"
+import type { CamposDocumento, Factura } from "./api/tipos"
 
 export type BorradorFactura = {
   proveedor: string
-  categoria: Categoria | ""
+  categoria: string
   periodo: string
   monto: string
   moneda: string
@@ -29,22 +29,25 @@ export function armarFactura(
 ): { ok: true; factura: Factura } | { ok: false; errores: ErroresFactura } {
   const errores: ErroresFactura = {}
   const proveedor = form.proveedor.trim()
+  const categoria = form.categoria.trim()
+  const periodo = form.periodo.trim()
+  const montoTexto = form.monto.trim()
   if (!proveedor) errores.proveedor = "Falta el proveedor"
-  if (form.categoria !== "servicios" && form.categoria !== "expensas" && form.categoria !== "alquiler") {
-    errores.categoria = "Elegí servicios, expensas o alquiler"
-  }
-  if (!PERIODO.test(form.periodo)) errores.periodo = "El período tiene que ser YYYY-MM"
+  if (!categoria) errores.categoria = "Falta la categoría"
+  if (!periodo) errores.periodo = "Falta el período"
+  else if (!PERIODO.test(periodo)) errores.periodo = "El período tiene que ser YYYY-MM"
   const monto = normalizarMonto(form.monto)
-  if (!monto) errores.monto = "El monto tiene que ser un número con dos decimales"
+  if (!montoTexto) errores.monto = "Falta el monto"
+  else if (!monto) errores.monto = "El monto tiene que ser un número con dos decimales"
   const moneda = form.moneda.trim() || "ARS"
-  if (Object.keys(errores).length > 0 || !monto || form.categoria === "") {
+  if (Object.keys(errores).length > 0 || !monto || categoria === "") {
     return { ok: false, errores }
   }
   return {
     ok: true,
     factura: {
       proveedor,
-      categoria: form.categoria,
+      categoria,
       periodo: form.periodo,
       monto,
       moneda,

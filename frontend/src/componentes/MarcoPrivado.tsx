@@ -1,8 +1,10 @@
 import { Box, Button, CloseButton, Drawer, Flex, Portal, useMediaQuery } from "@chakra-ui/react"
 import { useEffect, useState } from "react"
 import { Navigate, Outlet, useLocation, useNavigate } from "react-router"
+import { ProveedorCanal } from "../canal"
 import { useSesion } from "../sesion"
 import { BarraLateral, type Seccion } from "./BarraLateral"
+import { Campana } from "./Campana"
 import { Cargando } from "./Cargando"
 
 function seccionActiva(pathname: string): Seccion | null {
@@ -67,34 +69,49 @@ export function MarcoPrivado() {
           >
             <BarraLateral activo={seccionActiva(pathname)} email={email} onSalir={alSalir} />
           </Box>
-          <Flex direction="column" flex="1" minW={0} minH={0}>
-            <Box display={{ base: "block", md: "none" }} px={4} pt={4} flexShrink={0}>
-              <Drawer.Trigger asChild>
-                <Button
-                  variant="ghost"
-                  bg="bg.panel"
-                  color="fg"
-                  borderRadius="full"
-                  _hover={{ bg: "bg.hover", color: "fg" }}
-                >
-                  Menú
-                </Button>
-              </Drawer.Trigger>
-            </Box>
-            <Box
-              as="main"
-              flex="1"
-              minH={0}
-              minW={0}
-              display="flex"
-              flexDirection="column"
-              overflow={pathname === "/chat" ? "hidden" : "auto"}
-              px={pathname === "/chat" ? 0 : { base: 4, md: 6 }}
-              py={pathname === "/chat" ? 0 : { base: 4, md: 6 }}
-            >
-              <Outlet />
-            </Box>
-          </Flex>
+          <ProveedorCanal>
+            <Flex direction="column" flex="1" minW={0} minH={0}>
+              <Flex
+                align="center"
+                justify="space-between"
+                gap={3}
+                px={{ base: 3, md: 4 }}
+                h="56px"
+                flexShrink={0}
+                borderBottomWidth="1px"
+                borderColor="borde"
+              >
+                <Box display={{ base: "block", md: "none" }}>
+                  <Drawer.Trigger asChild>
+                    <Button
+                      variant="ghost"
+                      bg="bg.panel"
+                      color="fg"
+                      borderRadius="full"
+                      _hover={{ bg: "bg.hover", color: "fg" }}
+                    >
+                      Menú
+                    </Button>
+                  </Drawer.Trigger>
+                </Box>
+                <Box display={{ base: "none", md: "block" }} />
+                <Campana />
+              </Flex>
+              <Box
+                as="main"
+                flex="1"
+                minH={0}
+                minW={0}
+                display="flex"
+                flexDirection="column"
+                overflow={pathname === "/chat" ? "hidden" : "auto"}
+                px={pathname === "/chat" ? 0 : { base: 4, md: 6 }}
+                py={pathname === "/chat" ? 0 : { base: 4, md: 6 }}
+              >
+                <Outlet />
+              </Box>
+            </Flex>
+          </ProveedorCanal>
         </Flex>
         <Portal>
           <Drawer.Backdrop />

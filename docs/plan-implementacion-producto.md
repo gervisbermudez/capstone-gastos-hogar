@@ -72,7 +72,7 @@ Pedido: ...
 
 ### Rutas nuevas
 
-- `DELETE /documentos/{id}` → `204` si es un borrador de esa persona. `404` si no existe, es de otra persona o ya está confirmado. Borra también el archivo guardado.
+- `DELETE /documentos/{id}` → `204` si es un borrador o un confirmado de esa persona, también si está anulado. `404` si no existe o es de otra persona. Borra la fila, el archivo y los chunks de ese comprobante.
 - `GET /documentos/{id}/archivo` → bytes y `Content-Type`. `404` si no hay archivo o es de otra persona. El token va en `Authorization`, no en la query.
 - `POST /documentos/{id}/anular` → el comprobante confirmado queda fuera de `GET /resumen` y de `consultar_gastos`. `anulado: true` en el JSON. Un borrador responde `404`.
 - `POST /documentos/{id}/corregir` con una `Factura` → actualiza el confirmado y guarda el antes y el después. No recalcula en el cliente.

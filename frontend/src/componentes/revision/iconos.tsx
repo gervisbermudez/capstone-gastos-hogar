@@ -1,18 +1,18 @@
 import { type JSX, type ReactNode } from "react"
 
-function Icono({ children }: { children: ReactNode }) {
+function Icono({ children, tamano = 16 }: { children: ReactNode; tamano?: number }) {
   return (
     <svg
       aria-hidden="true"
-      width="16"
-      height="16"
+      width={tamano}
+      height={tamano}
       viewBox="0 0 16 16"
       fill="none"
       stroke="currentColor"
       strokeWidth="1.5"
       strokeLinecap="round"
       strokeLinejoin="round"
-      style={{ display: "block", flexShrink: 0, width: 16, height: 16 }}
+      style={{ display: "block", flexShrink: 0, width: tamano, height: tamano }}
     >
       {children}
     </svg>
@@ -102,6 +102,24 @@ export function IconoArchivo(): JSX.Element {
   return (
     <Icono>
       <path d="M9.15 6.5V10.15a1.35 1.35 0 0 1-2.7 0V4.85a2.85 2.85 0 0 1 5.7 0v4.15a4.15 4.15 0 0 1-8.3 0V6.35" />
+    </Icono>
+  )
+}
+
+export function IconoVolver(): JSX.Element {
+  return (
+    <Icono tamano={22}>
+      <path d="M10.4 2.7 4.8 8l5.6 5.3" />
+    </Icono>
+  )
+}
+
+export function IconoPuntos(): JSX.Element {
+  return (
+    <Icono tamano={18}>
+      <circle cx="8" cy="3.15" r="1.05" fill="currentColor" stroke="none" />
+      <circle cx="8" cy="8" r="1.05" fill="currentColor" stroke="none" />
+      <circle cx="8" cy="12.85" r="1.05" fill="currentColor" stroke="none" />
     </Icono>
   )
 }

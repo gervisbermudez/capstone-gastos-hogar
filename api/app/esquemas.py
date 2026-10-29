@@ -18,7 +18,10 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_serial
 CAMPO_ARCHIVO = "archivo"
 TIPOS_ARCHIVO = ("jpeg", "png", "webp", "pdf")
 
-Categoria = Literal["servicios", "expensas", "alquiler"]
+# Las tres fijas siguen siendo servicios, expensas y alquiler. También vale
+# el nombre de una categoría del catálogo de esa persona: el repositorio
+# lo resuelve al confirmar o corregir.
+Categoria = str
 EstadoDocumento = Literal["borrador", "confirmado"]
 EstadoTarea = Literal["PENDING", "RUNNING", "AWAITING_APPROVAL", "FAILED", "DONE"]
 Indexado = Literal["ok", "error", "omitido"]
@@ -48,6 +51,23 @@ def _periodo_opcional(valor: object) -> str | None:
     return _periodo(valor)
 
 
+def _categoria_obligatoria(valor: object) -> str:
+    if not isinstance(valor, str):
+        raise ValueError("Falta la categoría")
+    texto = valor.strip()
+    if not texto:
+        raise ValueError("Falta la categoría")
+    if len(texto) > 80:
+        raise ValueError("La categoría supera los 80 caracteres")
+    return texto
+
+
+def _categoria_opcional(valor: object) -> str | None:
+    if valor is None:
+        return None
+    return _categoria_obligatoria(valor)
+
+
 def _monto(valor: object) -> str:
     if not isinstance(valor, str) or _MONTO.fullmatch(valor) is None:
         raise ValueError("El monto tiene que ser un string con dos decimales")
@@ -58,6 +78,13 @@ def _monto_opcional(valor: object) -> str | None:
     if valor is None:
         return None
     return _monto(valor)
+
+
+_ALIAS_SUELTOS = {" ", "_", "-"}
+
+
+def _caracter_alias(caracter: str) -> bool:
+    return caracter.isalpha() or caracter.isdecimal() or caracter in _ALIAS_SUELTOS
 
 
 class Credenciales(_Entrada):
@@ -80,6 +107,30 @@ class Credenciales(_Entrada):
         if valor == "":
             raise ValueError("Falta la contraseña")
         return valor
+
+
+class CambioNombre(_Entrada):
+    """Body de ``POST /auth/nombre``. No pide contraseña.
+
+    ``None``, vacío o solo espacios borra el alias. Si no, se recorta.
+    Máximo 40 caracteres. Letras Unicode, números, espacios, ``_`` y ``-``.
+    """
+
+    nombre: str | None
+
+    @field_validator("nombre")
+    @classmethod
+    def alias_opcional(cls, valor: str | None) -> str | None:
+        if valor is None:
+            return None
+        texto = valor.strip()
+        if not texto:
+            return None
+        if len(texto) > 40:
+            raise ValueError("El nombre supera los 40 caracteres")
+        if any(not _caracter_alias(caracter) for caracter in texto):
+            raise ValueError("El nombre solo admite letras, números, espacios, _ y -")
+        return texto
 
 
 class CambioEmail(_Entrada):
@@ -140,17 +191,29 @@ class Token(_Salida):
 
 
 class UsuarioActual(_Salida):
-    """``GET /auth/me`` → ``200``."""
+    """``GET /auth/me``, ``POST /auth/email`` y ``POST /auth/nombre``.
+
+    ``nombre`` es el alias. La clave se emite también cuando es null.
+    """
 
     user_id: str = Field(min_length=1)
     email: str
+    nombre: str | None
+
+
+class ModeloActivo(_Salida):
+    """``GET /auth/modelo`` → ``200``. No incluye claves ni arma el cliente."""
+
+    proveedor: Literal["openai", "gemini"]
+    modelo: str | None
 
 
 class Factura(_Entrada):
     """Body de ``POST /documentos/{id}/confirmar``.
 
     Faltan proveedor, período o monto → 422. ``categoria`` también es
-    obligatoria: la tabla del contrato no la marca opcional.
+    obligatoria: la tabla del contrato no la marca opcional. Puede ser
+    una fija o el nombre de una categoría propia.
     """
 
     proveedor: str
@@ -159,6 +222,11 @@ class Factura(_Entrada):
     monto: str
     moneda: str = "ARS"
     numero_comprobante: str | None = None
+
+    @field_validator("categoria")
+    @classmethod
+    def categoria_ok(cls, valor: str) -> str:
+        return _categoria_obligatoria(valor)
 
     @field_validator("proveedor", "moneda")
     @classmethod
@@ -188,6 +256,11 @@ class CamposDocumento(_Salida):
     monto: str | None = None
     moneda: str | None = None
     numero_comprobante: str | None = None
+
+    @field_validator("categoria")
+    @classmethod
+    def categoria_ok(cls, valor: str | None) -> str | None:
+        return _categoria_opcional(valor)
 
     @field_validator("periodo")
     @classmethod
@@ -302,6 +375,11 @@ class TotalMes(_Salida):
 class TotalCategoria(_Salida):
     categoria: Categoria
     total: str
+
+    @field_validator("categoria")
+    @classmethod
+    def categoria_ok(cls, valor: str) -> str:
+        return _categoria_obligatoria(valor)
 
     @field_validator("total")
     @classmethod
@@ -478,3 +556,53 @@ class ListaCategorias(_Salida):
     """``GET /categorias`` → ``200``."""
 
     items: list[CategoriaItem]
+
+
+class AccionNotificacion(_Salida):
+    """Botón que manda el servidor. La ruta es del frontend."""
+
+    etiqueta: str = Field(min_length=1)
+    ruta: str = Field(min_length=1)
+
+
+class RecursoEvento(_Salida):
+    """A qué cosa apunta el evento. ``clase`` la elige el módulo."""
+
+    clase: str = Field(min_length=1)
+    id: str = Field(min_length=1)
+
+
+class NotificacionItem(_Salida):
+    """Una fila de ``GET /notificaciones``."""
+
+    id: str = Field(min_length=1)
+    tipo: str = Field(min_length=1)
+    titulo: str
+    cuerpo: str
+    accion: AccionNotificacion | None = None
+    recurso: RecursoEvento | None = None
+    leida: bool
+    creada_en: str
+
+
+class ListaNotificaciones(_Salida):
+    """``GET /notificaciones`` → ``200``."""
+
+    items: list[NotificacionItem]
+    no_leidas: int
+
+
+class CargaAceptada(_Salida):
+    """``POST /documentos`` → ``202``. La extracción corre después."""
+
+    job_id: str = Field(min_length=1)
+    status: Literal["PENDING"]
+
+
+class CargaEstado(_Salida):
+    """``GET /cargas/{job_id}``. ``documento_id`` llega con la fase ``lista``."""
+
+    job_id: str = Field(min_length=1)
+    fase: Literal["recibida", "extrayendo", "lista", "falla"]
+    documento_id: str | None = None
+    mensaje: str | None = None

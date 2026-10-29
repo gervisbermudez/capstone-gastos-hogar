@@ -20,11 +20,20 @@ import {
   olvidarContextoChat,
   olvidarHilo,
   olvidarJobPendiente,
+  olvidarTranscripto,
   type MensajeGuardado,
 } from "../almacen"
+import { canalConectado, marcarLeidasDeRecurso, seguirJob, suscribirEventos, tareaDeEvento } from "../canalBus"
 import { citaComprobante, esTituloCita, fotoDesdeCita, textoVisible, tituloVisible } from "../chat/contexto"
-import { Compositor, EncabezadoChat, EstadoVacio, MensajeChat, fotoDeAdjunto } from "../componentes/chat/Conversacion"
-import { ListaConversaciones } from "../componentes/chat/ListaConversaciones"
+import {
+  Compositor,
+  DialogoEliminarConversacion,
+  EncabezadoChat,
+  EstadoVacio,
+  MensajeChat,
+  fotoDeAdjunto,
+} from "../componentes/chat/Conversacion"
+import { ListaConversaciones, type VistaConversaciones } from "../componentes/chat/ListaConversaciones"
 
 type Mensaje = MensajeGuardado
 
@@ -64,8 +73,6 @@ function esperar(ms: number, signal: AbortSignal): Promise<void> {
   })
 }
 
-const REINTENTOS_SOCKET = 3
-
 function anotarEstado(
   estado: TareaEstado,
   puedePararEnAprobacion: boolean,
@@ -91,48 +98,65 @@ async function seguir(
   saltarAprobacionActual: boolean,
   alHilo?: (threadId: string) => void,
 ): Promise<TareaEstado> {
-  // Un socket recibe cada cambio. Si no abre, se vuelve al GET cada 1 s.
+  // El canal de la sesión trae chat.estado. Si no está abierto, se vuelve al GET.
+  const soltarJob = seguirJob(jobId)
+  const cola: TareaEstado[] = []
+  let despertar: (() => void) | null = null
+  const soltar = suscribirEventos((evento) => {
+    const estado = tareaDeEvento(evento, jobId)
+    if (!estado) return
+    cola.push(estado)
+    const fn = despertar
+    despertar = null
+    fn?.()
+  })
   let puedePararEnAprobacion = !saltarAprobacionActual
-  let usarSocket = true
-  let cortes = 0
-  for (;;) {
-    if (!usarSocket) {
-      const estado = await cliente.verTarea(jobId, signal)
-      const paso = anotarEstado(estado, puedePararEnAprobacion, alHilo)
-      puedePararEnAprobacion = paso.puedePararEnAprobacion
-      if (paso.listo) return estado
-      await esperar(1000, signal)
-      continue
-    }
 
-    if (signal.aborted) throw new DOMException("aborted", "AbortError")
-    let recibio = false
-    let listo: TareaEstado | null = null
-    try {
-      for await (const estado of cliente.eventosTarea(jobId, signal)) {
-        if (listo) continue
-        recibio = true
-        const paso = anotarEstado(estado, puedePararEnAprobacion, alHilo)
-        puedePararEnAprobacion = paso.puedePararEnAprobacion
-        if (paso.listo) listo = estado
+  const tomar = (): TareaEstado | null => {
+    const estado = cola.shift()
+    if (!estado) return null
+    const paso = anotarEstado(estado, puedePararEnAprobacion, alHilo)
+    puedePararEnAprobacion = paso.puedePararEnAprobacion
+    return paso.listo ? estado : null
+  }
+
+  const esperarAviso = () =>
+    new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(resolve, 1000)
+      const alAbortar = () => {
+        clearTimeout(timer)
+        reject(new DOMException("aborted", "AbortError"))
       }
-    } catch (error) {
-      const conserva = listo !== null && !signal.aborted && !esAbort(error)
-      if (!conserva) {
-        if (esAbort(error) || signal.aborted) {
-          throw esAbort(error) ? error : new DOMException("aborted", "AbortError")
-        }
-        if (error instanceof ErrorApi && error.status !== 0) throw error
+      signal.addEventListener("abort", alAbortar, { once: true })
+      despertar = () => {
+        clearTimeout(timer)
+        signal.removeEventListener("abort", alAbortar)
+        resolve()
       }
+    })
+
+  try {
+    const actual = await cliente.verTarea(jobId, signal)
+    const paso = anotarEstado(actual, puedePararEnAprobacion, alHilo)
+    puedePararEnAprobacion = paso.puedePararEnAprobacion
+    if (paso.listo) return actual
+    for (;;) {
+      if (signal.aborted) throw new DOMException("aborted", "AbortError")
+      const deCola = tomar()
+      if (deCola) return deCola
+      if (!canalConectado()) {
+        const estado = await cliente.verTarea(jobId, signal)
+        const sondeo = anotarEstado(estado, puedePararEnAprobacion, alHilo)
+        puedePararEnAprobacion = sondeo.puedePararEnAprobacion
+        if (sondeo.listo) return estado
+        await esperar(1000, signal)
+        continue
+      }
+      await esperarAviso()
     }
-    if (listo) return listo
-    if (!recibio) {
-      cortes += 1
-      if (cortes >= REINTENTOS_SOCKET) usarSocket = false
-    } else {
-      cortes = 0
-    }
-    await esperar(1000, signal)
+  } finally {
+    soltar()
+    soltarJob()
   }
 }
 
@@ -157,8 +181,13 @@ function tituloDe(hilos: Hilo[] | null, activo: string | null, mensajes: readonl
   return tituloLocal(mensajes) || (guardado ? tituloVisible(guardado) : "Conversación")
 }
 
-function hilosConActual(hilos: Hilo[] | null, activo: string | null, mensajes: readonly Mensaje[]): Hilo[] | null {
-  if (!hilos || !activo || hilos.some((hilo) => hilo.thread_id === activo)) return hilos
+function hilosConActual(
+  hilos: Hilo[] | null,
+  activo: string | null,
+  mensajes: readonly Mensaje[],
+  archivados: ReadonlySet<string>,
+): Hilo[] | null {
+  if (!hilos || !activo || archivados.has(activo) || hilos.some((hilo) => hilo.thread_id === activo)) return hilos
   const persona = mensajes.find((mensaje) => mensaje.tipo === "persona")
   const titulo = persona?.tipo === "persona" && persona.texto.trim() ? persona.texto.trim() : "Nueva conversación"
   return [{ thread_id: activo, titulo, actualizado_en: new Date().toISOString() }, ...hilos]
@@ -253,8 +282,15 @@ export function Chat() {
   const [fallaFicha, setFallaFicha] = useState(false)
   const [avisoNuevo, setAvisoNuevo] = useState<string | null>(inicial.avisoNuevo)
   const [hilos, setHilos] = useState<Hilo[] | null>(null)
+  const [hilosArchivados, setHilosArchivados] = useState<Hilo[] | null>(null)
+  const [idsArchivados, setIdsArchivados] = useState<ReadonlySet<string>>(() => new Set())
   const [errorHilos, setErrorHilos] = useState<string | null>(null)
+  const [errorArchivados, setErrorArchivados] = useState<string | null>(null)
+  const [vista, setVista] = useState<VistaConversaciones>("activas")
   const [versionHilos, setVersionHilos] = useState(0)
+  const [gestionando, setGestionando] = useState(false)
+  const [baja, setBaja] = useState<{ id: string; titulo: string } | null>(null)
+  const [errorBaja, setErrorBaja] = useState<string | null>(null)
   const [cargandoHilo, setCargandoHilo] = useState(false)
   const [mensajes, setMensajes] = useState<Mensaje[]>(inicial.mensajes)
   const mensajesRef = useRef(inicial.mensajes)
@@ -350,6 +386,9 @@ export function Chat() {
 
   function aplicar(estado: TareaEstado) {
     observarHilo(estado.thread_id)
+    if (estado.status === "DONE" || estado.status === "FAILED" || estado.status === "AWAITING_APPROVAL") {
+      marcarLeidasDeRecurso("job", estado.job_id)
+    }
     if (estado.status === "DONE" || estado.status === "FAILED") {
       const hilo = hiloRef.current
       if (hilo && leerJobAplicado(hilo) === estado.job_id) {
@@ -366,7 +405,7 @@ export function Chat() {
         estado.job_id,
       )
       cerrarJob()
-      if (estado.status === "DONE") setVersionHilos((valor) => valor + 1)
+      setVersionHilos((valor) => valor + 1)
       return
     }
     if (estado.status === "AWAITING_APPROVAL") {
@@ -440,17 +479,37 @@ export function Chat() {
   useEffect(() => {
     const ctrl = new AbortController()
     let cancelado = false
-    cliente
-      .listarHilos(ctrl.signal)
-      .then((lista) => {
-        if (cancelado) return
-        setHilos(lista.items)
+    void (async () => {
+      const [activas, archivadas] = await Promise.allSettled([
+        cliente.listarHilos(ctrl.signal),
+        cliente.listarHilosArchivados(ctrl.signal),
+      ])
+      if (cancelado) return
+      if (activas.status === "fulfilled") {
+        setHilos(activas.value.items)
         setErrorHilos(null)
-      })
-      .catch((falla: unknown) => {
-        if (cancelado || esAbort(falla)) return
-        setErrorHilos(falla instanceof ErrorApi ? falla.message : "No se pudieron cargar las conversaciones.")
-      })
+      } else if (!esAbort(activas.reason)) {
+        setErrorHilos(
+          activas.reason instanceof ErrorApi ? activas.reason.message : "No se pudieron cargar las conversaciones.",
+        )
+      }
+      if (archivadas.status === "fulfilled") {
+        const idsActivos =
+          activas.status === "fulfilled" ? new Set(activas.value.items.map((hilo) => hilo.thread_id)) : null
+        const soloArchivados = idsActivos
+          ? archivadas.value.items.filter((hilo) => !idsActivos.has(hilo.thread_id))
+          : archivadas.value.items
+        setHilosArchivados(soloArchivados)
+        setIdsArchivados(new Set(soloArchivados.map((hilo) => hilo.thread_id)))
+        setErrorArchivados(null)
+      } else if (!esAbort(archivadas.reason)) {
+        setErrorArchivados(
+          archivadas.reason instanceof ErrorApi
+            ? archivadas.reason.message
+            : "No se pudieron cargar las conversaciones archivadas.",
+        )
+      }
+    })()
     return () => {
       cancelado = true
       ctrl.abort()
@@ -518,7 +577,7 @@ export function Chat() {
 
   async function enviar(texto: string) {
     const query = texto.trim()
-    if (!query || ocupado || hayPendiente) return
+    if (!query || ocupado || hayPendiente || gestionando) return
     pegado.current = true
     const idContexto = contextoIdRef.current
     const documento = fichaRef.current
@@ -551,6 +610,7 @@ export function Chat() {
       const creada = await cliente.crearTarea({ query: queryApi, thread_id: hiloRef.current })
       guardarJobPendiente(creada.job_id)
       conJob = true
+      if (idsArchivados.has(creada.thread_id)) recordarActiva(creada.thread_id)
       observarHilo(creada.thread_id)
       if (!vivo.current) return
       const estado = await seguir(creada.job_id, ctrl.signal, false, observarHilo)
@@ -680,7 +740,149 @@ export function Chat() {
 
   function reintentarHilos() {
     setErrorHilos(null)
+    setErrorArchivados(null)
     setVersionHilos((valor) => valor + 1)
+  }
+
+  function mensajeGestion(falla: unknown, accion: string): string {
+    if (falla instanceof ErrorApi) return falla.message
+    return `No se pudo ${accion} la conversación.`
+  }
+
+  function fichaDe(threadId: string): Hilo {
+    return (
+      hilos?.find((hilo) => hilo.thread_id === threadId) ??
+      hilosArchivados?.find((hilo) => hilo.thread_id === threadId) ?? {
+        thread_id: threadId,
+        titulo:
+          tituloLocal(threadId === hiloRef.current ? mensajesRef.current : leerTranscripto(threadId)) || "Conversación",
+        actualizado_en: new Date().toISOString(),
+      }
+    )
+  }
+
+  function recordarArchivada(threadId: string) {
+    const item = fichaDe(threadId)
+    setIdsArchivados((prev) => {
+      const next = new Set(prev)
+      next.add(threadId)
+      return next
+    })
+    setHilos((prev) => prev?.filter((hilo) => hilo.thread_id !== threadId) ?? prev)
+    setHilosArchivados((prev) => {
+      if (!prev || prev.some((hilo) => hilo.thread_id === threadId)) return prev
+      return [item, ...prev]
+    })
+  }
+
+  function recordarActiva(threadId: string) {
+    const item = hilosArchivados?.find((hilo) => hilo.thread_id === threadId) ?? fichaDe(threadId)
+    setIdsArchivados((prev) => {
+      if (!prev.has(threadId)) return prev
+      const next = new Set(prev)
+      next.delete(threadId)
+      return next
+    })
+    setHilosArchivados((prev) => prev?.filter((hilo) => hilo.thread_id !== threadId) ?? prev)
+    setHilos((prev) => {
+      if (!prev || prev.some((hilo) => hilo.thread_id === threadId)) return prev
+      return [item, ...prev]
+    })
+  }
+
+  function quitarDeListas(threadId: string) {
+    setIdsArchivados((prev) => {
+      if (!prev.has(threadId)) return prev
+      const next = new Set(prev)
+      next.delete(threadId)
+      return next
+    })
+    setHilos((prev) => prev?.filter((hilo) => hilo.thread_id !== threadId) ?? prev)
+    setHilosArchivados((prev) => prev?.filter((hilo) => hilo.thread_id !== threadId) ?? prev)
+  }
+
+  function olvidarConversacion(threadId: string) {
+    olvidarTranscripto(threadId)
+    const contexto = leerContextoChat()
+    if (hiloRef.current !== threadId) {
+      if (contexto?.threadId === threadId) olvidarContextoChat()
+      return
+    }
+    cargaHilo.current?.abort()
+    hiloRef.current = null
+    setHiloActivo(null)
+    mensajesRef.current = []
+    setMensajes([])
+    setCargandoHilo(false)
+    setBorrador("")
+    setError(null)
+    olvidarHilo()
+    soltarContexto()
+  }
+
+  function ocupadoEnGestion(): boolean {
+    return ocupado || hayPendiente || gestionando
+  }
+
+  async function archivar(threadId: string) {
+    if (ocupadoEnGestion()) return
+    setGestionando(true)
+    setError(null)
+    try {
+      await cliente.archivarHilo(threadId)
+      recordarArchivada(threadId)
+      setVersionHilos((valor) => valor + 1)
+    } catch (falla: unknown) {
+      setError(mensajeGestion(falla, "archivar"))
+    } finally {
+      setGestionando(false)
+    }
+  }
+
+  async function restaurar(threadId: string) {
+    if (ocupadoEnGestion()) return
+    setGestionando(true)
+    setError(null)
+    try {
+      await cliente.restaurarHilo(threadId)
+      recordarActiva(threadId)
+      setVersionHilos((valor) => valor + 1)
+    } catch (falla: unknown) {
+      setError(mensajeGestion(falla, "restaurar"))
+    } finally {
+      setGestionando(false)
+    }
+  }
+
+  function pedirEliminar(threadId: string) {
+    if (ocupadoEnGestion()) return
+    const texto = fichaDe(threadId).titulo.trim() || "esta conversación"
+    setErrorBaja(null)
+    setBaja({ id: threadId, titulo: texto })
+  }
+
+  function cerrarBaja() {
+    if (gestionando) return
+    setBaja(null)
+    setErrorBaja(null)
+  }
+
+  async function confirmarEliminar() {
+    if (!baja || gestionando) return
+    const threadId = baja.id
+    setGestionando(true)
+    setErrorBaja(null)
+    try {
+      await cliente.eliminarHilo(threadId)
+      olvidarConversacion(threadId)
+      quitarDeListas(threadId)
+      setBaja(null)
+      setVersionHilos((valor) => valor + 1)
+    } catch (falla: unknown) {
+      setErrorBaja(mensajeGestion(falla, "eliminar"))
+    } finally {
+      setGestionando(false)
+    }
   }
 
   function empezarNueva() {
@@ -693,13 +895,12 @@ export function Chat() {
     void abrirHilo(threadId)
   }
 
-  const hiloEnlace = useRef(hiloParam)
+  const abrirDesdeEnlace = useRef(abrirHilo)
+  abrirDesdeEnlace.current = abrirHilo
 
   useEffect(() => {
-    const pedido = hiloEnlace.current
-    if (!pedido) return
-    hiloEnlace.current = null
-    void abrirHilo(pedido)
+    if (!hiloParam) return
+    void abrirDesdeEnlace.current(hiloParam)
     setSearchParams(
       (actuales) => {
         if (!actuales.has("hilo")) return actuales
@@ -709,11 +910,39 @@ export function Chat() {
       },
       { replace: true },
     )
-  }, [setSearchParams])
+  }, [hiloParam, setSearchParams])
 
   const bloqueado = ocupado || hayPendiente
-  const titulo = tituloDe(hilos, hiloActivo, mensajes)
-  const historial = hilosLimpios(hilosConActual(hilos, hiloActivo, mensajes), hiloActivo, mensajes)
+  const bloqueadoLista = bloqueado || gestionando
+  const archivada = hiloActivo !== null && idsArchivados.has(hiloActivo)
+  const titulo = tituloDe(
+    hilos === null && hilosArchivados === null ? null : [...(hilos ?? []), ...(hilosArchivados ?? [])],
+    hiloActivo,
+    mensajes,
+  )
+  const activasVisibles = hilos === null ? null : hilos.filter((hilo) => !idsArchivados.has(hilo.thread_id))
+  const fuente = vista === "archivadas" ? hilosArchivados : activasVisibles
+  const historial = hilosLimpios(
+    vista === "activas" ? hilosConActual(fuente, hiloActivo, mensajes, idsArchivados) : fuente,
+    hiloActivo,
+    mensajes,
+  )
+  const errorLista =
+    vista === "archivadas" ? (hilosArchivados === null ? errorArchivados : null) : hilos === null ? errorHilos : null
+  const accionesLista = {
+    hilos: historial,
+    error: errorLista,
+    activoId: hiloActivo,
+    bloqueado: bloqueadoLista,
+    modo: vista,
+    onModo: setVista,
+    onNueva: empezarNueva,
+    onAbrir: elegirHilo,
+    onArchivar: (threadId: string) => void archivar(threadId),
+    onRestaurar: (threadId: string) => void restaurar(threadId),
+    onEliminar: pedirEliminar,
+    onReintentar: reintentarHilos,
+  }
 
   return (
     <Drawer.Root placement="start" open={historialAbierto} onOpenChange={(detalle) => setHistorialAbierto(detalle.open)}>
@@ -728,18 +957,25 @@ export function Chat() {
           borderRightWidth="1px"
           borderColor="borde"
         >
-          <ListaConversaciones
-            hilos={historial}
-            error={hilos === null ? errorHilos : null}
-            activoId={hiloActivo}
-            bloqueado={bloqueado}
-            onNueva={empezarNueva}
-            onAbrir={elegirHilo}
-            onReintentar={reintentarHilos}
-          />
+          <ListaConversaciones {...accionesLista} />
         </Box>
         <Flex direction="column" flex="1" minW={0} minH={0}>
-          <EncabezadoChat titulo={titulo} onAbrirHistorial={() => setHistorialAbierto(true)} />
+          <EncabezadoChat
+            titulo={titulo}
+            archivada={archivada}
+            puedeGestionar={hiloActivo !== null}
+            bloqueado={bloqueadoLista}
+            onAbrirHistorial={() => setHistorialAbierto(true)}
+            onArchivar={() => {
+              if (hiloActivo) void archivar(hiloActivo)
+            }}
+            onRestaurar={() => {
+              if (hiloActivo) void restaurar(hiloActivo)
+            }}
+            onEliminar={() => {
+              if (hiloActivo) pedirEliminar(hiloActivo)
+            }}
+          />
           {avisoNuevo ? (
             <Box px={{ base: 4, md: 6 }} pt={3}>
               <Alert.Root status="warning">
@@ -808,16 +1044,7 @@ export function Chat() {
           <Drawer.Content bg="bg.subtle" color="fg" w="300px" maxW="85vw" h="100dvh">
             <Drawer.Title srOnly>Conversaciones</Drawer.Title>
             <Drawer.Body p={0} flex="1" minH={0} display="flex" flexDirection="column" overflow="hidden">
-              <ListaConversaciones
-                hilos={historial}
-                error={hilos === null ? errorHilos : null}
-                activoId={hiloActivo}
-                bloqueado={bloqueado}
-                onNueva={empezarNueva}
-                onAbrir={elegirHilo}
-                onReintentar={reintentarHilos}
-                conCierre
-              />
+              <ListaConversaciones {...accionesLista} conCierre />
             </Drawer.Body>
             <Drawer.CloseTrigger asChild>
               <CloseButton aria-label="Cerrar" color="fg" />
@@ -825,6 +1052,14 @@ export function Chat() {
           </Drawer.Content>
         </Drawer.Positioner>
       </Portal>
+      <DialogoEliminarConversacion
+        titulo={baja?.titulo ?? "esta conversación"}
+        abierto={baja !== null}
+        ocupado={gestionando}
+        error={errorBaja}
+        onCerrar={cerrarBaja}
+        onConfirmar={() => void confirmarEliminar()}
+      />
     </Drawer.Root>
   )
 }

@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
+import asyncio
 import sys
 from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 RAIZ = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RAIZ))
 
+from app import repositorio
+from app.esquemas import Factura, TotalCategoria
 from app.rutas_auth import router as router_auth
 from app.rutas_categorias import router as router_categorias
 
@@ -316,3 +320,83 @@ def test_descripcion_vacia_se_guarda_como_null(tmp_path, monkeypatch) -> None:
         assert (
             cliente.get("/categorias", headers=headers).json()["items"][2]["descripcion"] is None
         )
+
+
+def _gasto(proveedor: str, categoria: str, monto: str) -> dict[str, str]:
+    return {
+        "proveedor": proveedor,
+        "categoria": categoria,
+        "periodo": "2026-03",
+        "monto": monto,
+        "moneda": "ARS",
+    }
+
+
+def test_un_gasto_acepta_una_categoria_del_catalogo(tmp_path, monkeypatch) -> None:
+    _entorno(monkeypatch, tmp_path)
+
+    async def escenario() -> None:
+        ana = await repositorio.crear_usuario("ana-cat@example.com", "hash")
+        beto = await repositorio.crear_usuario("beto-cat@example.com", "hash")
+        await repositorio.crear_categoria(user_id=ana, nombre="Agua", descripcion=None)
+        await repositorio.crear_categoria(user_id=ana, nombre="Servicios", descripcion=None)
+        await repositorio.crear_categoria(user_id=ana, nombre="Internet", descripcion=None)
+        await repositorio.crear_categoria(user_id=beto, nombre="Gas", descripcion=None)
+
+        agua_id = await repositorio.guardar_borrador(
+            user_id=ana, texto="agua", campos={}, advertencias=[]
+        )
+        agua = await repositorio.confirmar_documento(
+            user_id=ana,
+            documento_id=agua_id,
+            campos=_gasto("AySA", "agua", "10.00"),
+        )
+        assert agua is not None
+        assert agua["campos"]["categoria"] == "Agua"
+
+        fija_id = await repositorio.guardar_borrador(
+            user_id=ana, texto="luz", campos={}, advertencias=[]
+        )
+        fija = await repositorio.confirmar_documento(
+            user_id=ana,
+            documento_id=fija_id,
+            campos=_gasto("Edenor", "Servicios", "11.00"),
+        )
+        assert fija is not None
+        assert fija["campos"]["categoria"] == "servicios"
+
+        ajena_id = await repositorio.guardar_borrador(
+            user_id=ana, texto="gas", campos={}, advertencias=[]
+        )
+        try:
+            await repositorio.confirmar_documento(
+                user_id=ana,
+                documento_id=ajena_id,
+                campos=_gasto("Metrogas", "Gas", "12.00"),
+            )
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("aceptó una categoría de otra persona")
+        sigue = await repositorio.obtener_documento(user_id=ana, documento_id=ajena_id)
+        assert sigue is not None
+        assert sigue["estado"] == "borrador"
+
+        corregido = await repositorio.corregir_comprobante(
+            user_id=ana,
+            documento_id=agua_id,
+            campos=_gasto("AySA", "internet", "10.00"),
+        )
+        assert corregido is not None
+        assert corregido["campos"]["categoria"] == "Internet"
+
+        factura = Factura.model_validate(_gasto("AySA", "  Agua  ", "10.00"))
+        assert factura.categoria == "Agua"
+        TotalCategoria.model_validate({"categoria": "Internet", "total": "10.00"})
+        try:
+            Factura.model_validate(_gasto("AySA", "   ", "10.00"))
+        except ValidationError:
+            return
+        raise AssertionError("aceptó una categoría vacía")
+
+    asyncio.run(escenario())

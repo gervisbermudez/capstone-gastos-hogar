@@ -9,8 +9,10 @@ import {
   NativeSelect,
   Stack,
 } from "@chakra-ui/react"
-import { useState, type ReactNode } from "react"
-import { CATEGORIAS, ETIQUETA_CATEGORIA } from "../api/tipos"
+import { useEffect, useMemo, useState, type ReactNode } from "react"
+import { cliente, esAbort } from "../api/cliente"
+import type { CategoriaItem } from "../api/tipos"
+import { opcionActual, opcionesDelCatalogo, opcionesGenerales } from "../categorias"
 import { FILTROS_INICIALES, type FiltrosRegistros } from "../datos/filtrarRegistros"
 
 type Props = {
@@ -21,14 +23,6 @@ type Props = {
   onCambio: <K extends keyof FiltrosRegistros>(clave: K, valor: FiltrosRegistros[K]) => void
   onLimpiar: () => void
   onDescargar: () => void
-}
-
-const OPCIONES_CATEGORIA: readonly FiltrosRegistros["categoria"][] = ["todas", "sin", ...CATEGORIAS]
-
-const ETIQUETA_FILTRO_CATEGORIA: Record<FiltrosRegistros["categoria"], string> = {
-  todas: "Todas",
-  sin: "Sin categoría",
-  ...ETIQUETA_CATEGORIA,
 }
 
 const OPCIONES_ESTADO: readonly FiltrosRegistros["estado"][] = ["todos", "borrador", "confirmado"]
@@ -148,6 +142,7 @@ export function FiltrosRegistros({
   onDescargar,
 }: Props) {
   const [extrasAbiertos, setExtrasAbiertos] = useState(false)
+  const [catalogo, setCatalogo] = useState<CategoriaItem[]>([])
   const monedasVisibles = listaMonedas(monedas, filtros.moneda)
   const cantidadExtras = extrasActivos(filtros)
   const mostrarLimpiar = hayAlgunFiltro(filtros)
@@ -156,6 +151,32 @@ export function FiltrosRegistros({
     setExtrasAbiertos(false)
     onLimpiar()
   }
+
+  useEffect(() => {
+    const ctrl = new AbortController()
+    cliente
+      .listarCategorias(ctrl.signal)
+      .then((lista) => setCatalogo(lista.items))
+      .catch((falla: unknown) => {
+        if (esAbort(falla)) return
+        setCatalogo([])
+      })
+    return () => ctrl.abort()
+  }, [])
+
+  const opcionesCategoria = useMemo(() => {
+    const propias = opcionesDelCatalogo(catalogo)
+    const ocupados = new Set(propias.map((opcion) => opcion.value))
+    const lista = [
+      { value: "todas", label: "Todas" },
+      { value: "sin", label: "Sin categoría" },
+      ...opcionesGenerales(ocupados),
+      ...propias,
+    ]
+    const extra = opcionActual(filtros.categoria, new Set(lista.map((opcion) => opcion.value)))
+    if (extra && filtros.categoria !== "todas" && filtros.categoria !== "sin") lista.push(extra)
+    return lista
+  }, [catalogo, filtros.categoria])
 
   return (
     <Stack gap={3}>
@@ -268,13 +289,29 @@ export function FiltrosRegistros({
             </Checkbox.Label>
           </Checkbox.Root>
           <Flex direction={{ base: "column", md: "row" }} flexWrap={{ md: "wrap" }} gap={3} align={{ md: "flex-end" }}>
-          <CampoOpcion
-            etiqueta="Categoría"
-            valor={filtros.categoria}
-            opciones={OPCIONES_CATEGORIA}
-            etiquetas={ETIQUETA_FILTRO_CATEGORIA}
-            onCambio={(valor) => onCambio("categoria", valor)}
-          />
+          <Campo etiqueta="Categoría">
+            <NativeSelect.Root w="100%">
+              <NativeSelect.Field
+                bg="bg.panel"
+                color="fg"
+                value={filtros.categoria}
+                onChange={(event) => {
+                  const elegido = opcionElegida(
+                    event.target.value,
+                    opcionesCategoria.map((opcion) => opcion.value),
+                  )
+                  if (elegido !== null) onCambio("categoria", elegido)
+                }}
+              >
+                {opcionesCategoria.map((opcion) => (
+                  <option key={opcion.value} value={opcion.value}>
+                    {opcion.label}
+                  </option>
+                ))}
+              </NativeSelect.Field>
+              <NativeSelect.Indicator />
+            </NativeSelect.Root>
+          </Campo>
           <CampoOpcion
             etiqueta="Estado"
             valor={filtros.estado}

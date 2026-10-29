@@ -140,14 +140,6 @@ export function Tablero() {
 
       {mostrarPasos ? <PasosIniciales /> : null}
 
-      <PanelBorradores
-        borradores={borradores}
-        cargando={cargandoDocs}
-        hayError={errorDocs !== null}
-        descartando={descartando}
-        alDescartar={descartarBorrador}
-      />
-
       {!mostrarPasos && (cargandoResumen || resumenVisible) ? (
         <Grid templateColumns={{ base: "1fr", lg: "repeat(2, minmax(0, 1fr))" }} gap={{ base: 4, lg: 5 }}>
           {cargandoResumen ? (
@@ -192,6 +184,14 @@ export function Tablero() {
           )}
         </Stack>
       ) : null}
+
+      <PanelBorradores
+        borradores={borradores}
+        cargando={cargandoDocs}
+        hayError={errorDocs !== null}
+        descartando={descartando}
+        alDescartar={descartarBorrador}
+      />
     </Stack>
   )
 }

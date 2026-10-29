@@ -3,6 +3,7 @@ import { guardarResumen, generacionResumenes, leerResumenGuardado } from "../api
 import { ErrorApi, cliente, esAbort } from "../api/cliente"
 import type { DocumentoListado, Resumen } from "../api/tipos"
 import { toaster } from "../avisos"
+import { suscribirBorradorListo } from "../cargaActiva"
 import { periodoDe } from "../formulario"
 
 const MESES = [
@@ -67,6 +68,7 @@ export function useTablero(): DatosTablero {
   const [cargandoDocs, setCargandoDocs] = useState(true)
   const [descartando, setDescartando] = useState<string | null>(null)
   const descartandoRef = useRef<string | null>(null)
+  const listaVisible = useRef(false)
 
   const claveActual = `${desde}:${hasta}`
   const guardado = leerResumenGuardado(desde, hasta)
@@ -90,7 +92,6 @@ export function useTablero(): DatosTablero {
 
   async function descartarBorrador(id: string) {
     if (descartandoRef.current) return
-    if (!window.confirm("¿Descartás este borrador? No se puede deshacer.")) return
     descartandoRef.current = id
     setDescartando(id)
     try {
@@ -109,15 +110,17 @@ export function useTablero(): DatosTablero {
 
   useEffect(() => {
     const ctrl = new AbortController()
-    setCargandoDocs(true)
+    if (!listaVisible.current) setCargandoDocs(true)
     cliente
       .listarDocumentos(ctrl.signal)
       .then((lista) => {
+        listaVisible.current = true
         setBorradores(lista.items.filter((item) => item.estado === "borrador"))
         setErrorDocs(null)
       })
       .catch((error: unknown) => {
         if (esAbort(error)) return
+        listaVisible.current = false
         setBorradores(null)
         setErrorDocs(mensajeError(error, "No se pudieron cargar los borradores."))
       })
@@ -126,6 +129,8 @@ export function useTablero(): DatosTablero {
       })
     return () => ctrl.abort()
   }, [intento])
+
+  useEffect(() => suscribirBorradorListo(() => setIntento((valor) => valor + 1)), [])
 
   useEffect(() => {
     const ctrl = new AbortController()

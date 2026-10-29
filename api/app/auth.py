@@ -100,4 +100,8 @@ async def usuario_actual(
     usuario = await repositorio.buscar_usuario_por_id(user_id)
     if usuario is None:
         raise HTTPException(status_code=401, detail="No autenticado", headers=_NO_AUTENTICADO)
-    return {"user_id": usuario["user_id"], "email": usuario["email"]}
+    return {
+        "user_id": usuario["user_id"],
+        "email": usuario["email"],
+        "nombre": usuario["nombre"],
+    }

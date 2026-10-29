@@ -23,6 +23,7 @@ import uuid
 from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import quote
 
 from opentelemetry import trace
 
@@ -90,6 +91,73 @@ def _candado(thread_id: str) -> asyncio.Lock:
     return candado
 
 
+def _recorte(valor: object, n: int = 160) -> str:
+    plano = " ".join(str(valor or "").split())
+    if len(plano) <= n:
+        return plano
+    return plano[: n - 1].rstrip() + "…"
+
+
+def _notificacion_de_chat(job: dict[str, Any]) -> tuple[dict[str, Any] | None, str | None]:
+    """Bandeja solo al cerrar o al pedir aprobación. El resto es estado en vivo."""
+    status = job.get("status")
+    user_id = str(job.get("user_id") or "")
+    job_id = str(job.get("job_id") or "")
+    thread_id = str(job.get("thread_id") or "")
+    ruta = f"/chat?hilo={quote(thread_id, safe='')}" if thread_id else "/chat"
+    if status == DONE:
+        cuerpo = _recorte(job.get("result")) or "La respuesta ya está en el chat."
+        return (
+            {
+                "titulo": "Respuesta lista",
+                "cuerpo": cuerpo,
+                "accion": {"etiqueta": "Ver respuesta", "ruta": ruta},
+            },
+            f"{user_id}:chat.estado:job:{job_id}:DONE",
+        )
+    if status == FAILED:
+        return (
+            {
+                "titulo": "La consulta no se pudo completar",
+                "cuerpo": RESULTADO_FALLO,
+                "accion": {"etiqueta": "Reintentar", "ruta": "/chat"},
+            },
+            f"{user_id}:chat.estado:job:{job_id}:FAILED",
+        )
+    if status == AWAITING_APPROVAL:
+        cuerpo = _recorte(job.get("result")) or "Hay una acción pendiente de tu decisión."
+        return (
+            {
+                "titulo": "Hay algo para revisar",
+                "cuerpo": cuerpo,
+                "accion": {"etiqueta": "Revisar", "ruta": ruta},
+            },
+            f"{user_id}:chat.estado:job:{job_id}:AWAITING_APPROVAL",
+        )
+    return None, None
+
+
+async def _avisar_sesion(redis, job: dict[str, Any]) -> None:
+    user_id = job.get("user_id")
+    if not isinstance(user_id, str) or not user_id or not job.get("job_id"):
+        return
+    notificacion, dedupe = _notificacion_de_chat(job)
+    try:
+        from .canal import emitir
+
+        await emitir(
+            redis,
+            user_id=user_id,
+            tipo="chat.estado",
+            recurso={"clase": "job", "id": str(job["job_id"])},
+            payload=publico(job),
+            notificacion=notificacion,
+            dedupe=dedupe,
+        )
+    except Exception:
+        logger.warning("No se pudo avisar la sesión del job %s", job.get("job_id"))
+
+
 async def guardar(redis, job: dict[str, Any]) -> None:
     job["updated_at"] = ahora()
     await redis.set(data_key(job["job_id"]), json.dumps(job, ensure_ascii=False))
@@ -98,6 +166,7 @@ async def guardar(redis, job: dict[str, Any]) -> None:
         await redis.publish(event_channel(job["job_id"]), str(job.get("status") or ""))
     except Exception:
         logger.warning("No se pudo avisar el cambio del job %s", job.get("job_id"))
+    await _avisar_sesion(redis, job)
 
 
 async def leer(redis, job_id: str) -> dict[str, Any] | None:

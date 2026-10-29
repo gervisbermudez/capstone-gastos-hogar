@@ -1,5 +1,5 @@
 import { utils, writeFile } from "xlsx"
-import { ETIQUETA_CATEGORIA, type DocumentoListado } from "../api/tipos"
+import { etiquetaCategoria, type DocumentoListado } from "../api/tipos"
 
 const HOJA = "Registros"
 const ARCHIVO = "registros.xlsx"
@@ -35,8 +35,7 @@ function montoCelda(monto: string | undefined): number | null {
 }
 
 function categoriaCelda(categoria: DocumentoListado["campos"]["categoria"]): string {
-  if (categoria === undefined) return "Sin categoría"
-  return ETIQUETA_CATEGORIA[categoria]
+  return etiquetaCategoria(categoria)
 }
 
 function filaRegistro(item: DocumentoListado): FilaRegistro {

@@ -20,6 +20,7 @@ export type DatosRegistros = {
   cargando: boolean
   error: string | null
   reintentar: () => void
+  actualizarItem: (id: string, cambio: Partial<DocumentoListado> | null) => void
 }
 
 export function useRegistros(): DatosRegistros {
@@ -39,6 +40,14 @@ export function useRegistros(): DatosRegistros {
 
   function reintentar() {
     setIntento((valor) => valor + 1)
+  }
+
+  function actualizarItem(id: string, cambio: Partial<DocumentoListado> | null) {
+    setItems((actual) => {
+      if (actual === null) return actual
+      if (cambio === null) return actual.filter((item) => item.id !== id)
+      return actual.map((item) => (item.id === id ? { ...item, ...cambio } : item))
+    })
   }
 
   useEffect(() => {
@@ -72,5 +81,6 @@ export function useRegistros(): DatosRegistros {
     cargando,
     error,
     reintentar,
+    actualizarItem,
   }
 }

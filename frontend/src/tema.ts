@@ -141,6 +141,10 @@ export const sistema = createSystem(
             borderColor: "borde",
             focusVisibleRing: "outside",
             focusRingColor: "marca.sol",
+            "&[aria-invalid=true]": {
+              borderColor: "estado.falla",
+              focusRingColor: "estado.falla",
+            },
           },
           variants: {
             variant: {
@@ -150,6 +154,10 @@ export const sistema = createSystem(
                 borderColor: "borde",
                 focusVisibleRing: "outside",
                 focusRingColor: "marca.sol",
+                "&[aria-invalid=true]": {
+                  borderColor: "estado.falla",
+                  focusRingColor: "estado.falla",
+                },
               },
             },
           },

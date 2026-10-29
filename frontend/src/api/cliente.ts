@@ -6,10 +6,8 @@ import {
   type ConsultaTarea,
   type Credenciales,
   type CamposDocumento,
-  type Categoria,
   type CategoriaCatalogo,
   type CategoriaItem,
-  type DocumentoBorrador,
   type DocumentoConfirmado,
   type DocumentoDetalle,
   type EstadoTarea,
@@ -21,6 +19,11 @@ import {
   type ListaHilos,
   type Resumen,
   type RolMensaje,
+  type CargaAceptada,
+  type CargaEstado,
+  type FaseCarga,
+  type ListaNotificaciones,
+  type Notificacion,
   type TareaCreada,
   type TareaEstado,
   type Token,
@@ -55,8 +58,14 @@ function origen(): string {
   return valor.replace(/\/$/, "")
 }
 
-function urlDeSocket(path: string): string {
+export function urlSocket(path: string): string {
   return `${origen().replace(/^http/i, "ws")}${path}`
+}
+
+export function cerrarPorSesion(): void {
+  olvidarSesion()
+  olvidarResumenes()
+  alNoAutorizado()
 }
 
 function limpiarMensaje(mensaje: string): string {
@@ -337,8 +346,8 @@ function asegurarLista(valor: unknown): ListaDocumentos {
   }
 }
 
-function esCategoria(valor: unknown): valor is Categoria {
-  return valor === "servicios" || valor === "expensas" || valor === "alquiler"
+function esCategoriaGasto(valor: unknown): valor is string {
+  return typeof valor === "string" && valor.trim() !== ""
 }
 
 function asegurarResumen(valor: unknown): Resumen {
@@ -358,7 +367,7 @@ function asegurarResumen(valor: unknown): Resumen {
       return { periodo: item.periodo, total: item.total }
     }),
     por_categoria: valor.por_categoria.map((item) => {
-      if (!esObjeto(item) || !esCategoria(item.categoria) || typeof item.total !== "string") {
+      if (!esObjeto(item) || !esCategoriaGasto(item.categoria) || typeof item.total !== "string") {
         throw new ErrorApi("La API no devolvió el resumen.", 0)
       }
       return { categoria: item.categoria, total: item.total }
@@ -484,7 +493,7 @@ async function* eventosPorSocket(jobId: string, signal?: AbortSignal): AsyncGene
     throw new ErrorApi("La sesión venció.", 401)
   }
 
-  const socket = new WebSocket(urlDeSocket(`/tasks/${encodeURIComponent(jobId)}/ws`))
+  const socket = new WebSocket(urlSocket(`/tasks/${encodeURIComponent(jobId)}/ws`))
   const pendientes: TareaEstado[] = []
   let cerrado = false
   let error: Error | null = null
@@ -635,6 +644,83 @@ async function pedirCuenta(
   return json
 }
 
+const FASES_CARGA: readonly FaseCarga[] = ["recibida", "extrayendo", "lista", "falla"]
+
+function exigirCargaAceptada(valor: unknown): CargaAceptada {
+  if (!esObjeto(valor) || typeof valor.job_id !== "string" || valor.job_id === "") {
+    throw new ErrorApi("La API no devolvió la carga.", 0)
+  }
+  if (valor.status !== "PENDING") throw new ErrorApi("La API no devolvió la carga.", 0)
+  return { job_id: valor.job_id, status: "PENDING" }
+}
+
+function exigirCargaEstado(valor: unknown): CargaEstado {
+  if (!esObjeto(valor) || typeof valor.job_id !== "string" || valor.job_id === "") {
+    throw new ErrorApi("La API no devolvió la carga.", 0)
+  }
+  if (typeof valor.fase !== "string" || !FASES_CARGA.includes(valor.fase as FaseCarga)) {
+    throw new ErrorApi("La API no devolvió la carga.", 0)
+  }
+  const documento =
+    valor.documento_id == null
+      ? null
+      : typeof valor.documento_id === "string"
+        ? valor.documento_id
+        : null
+  const mensaje = valor.mensaje == null ? null : typeof valor.mensaje === "string" ? valor.mensaje : null
+  return {
+    job_id: valor.job_id,
+    fase: valor.fase as FaseCarga,
+    documento_id: documento,
+    mensaje,
+  }
+}
+
+function exigirAccion(valor: unknown): Notificacion["accion"] {
+  if (valor == null) return null
+  if (!esObjeto(valor) || typeof valor.etiqueta !== "string" || typeof valor.ruta !== "string") return null
+  if (!valor.etiqueta || !valor.ruta) return null
+  return { etiqueta: valor.etiqueta, ruta: valor.ruta }
+}
+
+function exigirRecurso(valor: unknown): Notificacion["recurso"] {
+  if (valor == null) return null
+  if (!esObjeto(valor) || typeof valor.clase !== "string" || typeof valor.id !== "string") return null
+  if (!valor.clase || !valor.id) return null
+  return { clase: valor.clase, id: valor.id }
+}
+
+function exigirNotificacion(valor: unknown): Notificacion | null {
+  if (!esObjeto(valor) || typeof valor.id !== "string" || valor.id === "") return null
+  if (typeof valor.tipo !== "string" || typeof valor.titulo !== "string" || typeof valor.cuerpo !== "string") {
+    return null
+  }
+  if (typeof valor.creada_en !== "string") return null
+  return {
+    id: valor.id,
+    tipo: valor.tipo,
+    titulo: valor.titulo,
+    cuerpo: valor.cuerpo,
+    accion: exigirAccion(valor.accion),
+    recurso: exigirRecurso(valor.recurso),
+    leida: valor.leida === true,
+    creada_en: valor.creada_en,
+  }
+}
+
+function exigirNotificaciones(valor: unknown): ListaNotificaciones {
+  if (!esObjeto(valor) || !Array.isArray(valor.items)) {
+    throw new ErrorApi("La API no devolvió las notificaciones.", 0)
+  }
+  const items: Notificacion[] = []
+  for (const item of valor.items) {
+    const aviso = exigirNotificacion(item)
+    if (aviso) items.push(aviso)
+  }
+  const noLeidas = typeof valor.no_leidas === "number" && valor.no_leidas >= 0 ? valor.no_leidas : 0
+  return { items, no_leidas: noLeidas }
+}
+
 export const cliente = {
   registrar(credenciales: Credenciales): Promise<Token> {
     return pedir("/auth/registro", {
@@ -675,16 +761,38 @@ export const cliente = {
     return pedirCuenta("/auth/cuenta", "DELETE", { password }, [204]).then(() => undefined)
   },
 
-  subir(archivo: File): Promise<DocumentoBorrador> {
+  subir(archivo: File, signal?: AbortSignal): Promise<CargaAceptada> {
     return pedir("/documentos", {
       method: "POST",
       archivo,
-      esperado: 201,
-    }).then((valor) => {
-      const detalle = asegurarDetalle(valor)
-      if (detalle.estado !== "borrador") throw new ErrorApi("La API no devolvió el borrador.", 0)
-      return detalle
-    })
+      signal,
+      esperado: 202,
+    }).then(exigirCargaAceptada)
+  },
+
+  verCarga(jobId: string, signal?: AbortSignal): Promise<CargaEstado> {
+    return pedir(`/cargas/${encodeURIComponent(jobId)}`, {
+      signal,
+      esperado: 200,
+    }).then(exigirCargaEstado)
+  },
+
+  listarNotificaciones(signal?: AbortSignal): Promise<ListaNotificaciones> {
+    return pedir("/notificaciones", { signal, esperado: 200 }).then(exigirNotificaciones)
+  },
+
+  marcarNotificacionLeida(id: string): Promise<void> {
+    return pedir(`/notificaciones/${encodeURIComponent(id)}/leida`, {
+      method: "POST",
+      esperado: 204,
+    }).then(() => undefined)
+  },
+
+  marcarNotificacionesLeidas(): Promise<void> {
+    return pedir("/notificaciones/leidas", {
+      method: "POST",
+      esperado: 204,
+    }).then(() => undefined)
   },
 
   listarDocumentos(signal?: AbortSignal): Promise<ListaDocumentos> {
@@ -716,13 +824,17 @@ export const cliente = {
     })
   },
 
-  descartar(id: string): Promise<void> {
+  eliminar(id: string): Promise<void> {
     return pedir(`/documentos/${encodeURIComponent(id)}`, {
       method: "DELETE",
       esperado: 204,
     }).then(() => {
       olvidarResumenes()
     })
+  },
+
+  descartar(id: string): Promise<void> {
+    return this.eliminar(id)
   },
 
   anular(id: string): Promise<DocumentoConfirmado> {
@@ -795,6 +907,31 @@ export const cliente = {
 
   listarHilos(signal?: AbortSignal): Promise<ListaHilos> {
     return pedir("/hilos", { signal, esperado: 200 }).then(asegurarListaHilos)
+  },
+
+  listarHilosArchivados(signal?: AbortSignal): Promise<ListaHilos> {
+    return pedir("/hilos?archivados=true", { signal, esperado: 200 }).then(asegurarListaHilos)
+  },
+
+  archivarHilo(threadId: string): Promise<void> {
+    return pedir(`/hilos/${encodeURIComponent(threadId)}/archivar`, {
+      method: "POST",
+      esperado: 204,
+    }).then(() => undefined)
+  },
+
+  restaurarHilo(threadId: string): Promise<void> {
+    return pedir(`/hilos/${encodeURIComponent(threadId)}/desarchivar`, {
+      method: "POST",
+      esperado: 204,
+    }).then(() => undefined)
+  },
+
+  eliminarHilo(threadId: string): Promise<void> {
+    return pedir(`/hilos/${encodeURIComponent(threadId)}`, {
+      method: "DELETE",
+      esperado: 204,
+    }).then(() => undefined)
   },
 
   verHilo(threadId: string, signal?: AbortSignal): Promise<HiloDetalle> {

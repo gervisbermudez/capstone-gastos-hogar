@@ -9,6 +9,8 @@ export {
   IconoBusqueda,
   IconoArchivo,
   IconoChat,
+  IconoVolver,
+  IconoPuntos,
 } from "./iconos"
 export type { TonoPastilla } from "./Pastilla"
 export { Pastilla } from "./Pastilla"

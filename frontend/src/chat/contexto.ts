@@ -1,5 +1,5 @@
 import type { FotoAdjunto } from "../almacen"
-import { ETIQUETA_CATEGORIA, type CamposDocumento, type Categoria } from "../api/tipos"
+import { ETIQUETA_CATEGORIA, etiquetaCategoria as etiquetaDeGasto, type CamposDocumento, type Categoria } from "../api/tipos"
 
 const UUID = "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
 
@@ -16,7 +16,7 @@ function parte(valor: string | undefined, vacio: string): string {
 
 export function citaComprobante(id: string, campos: CamposDocumento | undefined): string {
   const proveedor = parte(campos?.proveedor, "sin proveedor")
-  const categoria = parte(campos?.categoria, "sin categoría")
+  const categoria = parte(campos?.categoria ? etiquetaDeGasto(campos.categoria) : undefined, "sin categoría")
   const periodo = parte(campos?.periodo, "sin período")
   return `[comprobante ${id} | ${proveedor} | ${categoria} | ${periodo}]`
 }

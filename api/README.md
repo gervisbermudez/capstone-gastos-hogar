@@ -32,13 +32,15 @@ El `user_id` sale del JWT. Un recurso de otra persona responde 404.
 | POST | `/documentos` | Borrador. Guarda los bytes originales |
 | POST | `/documentos/{id}/confirmar` | Entra al libro y después indexa |
 | GET | `/documentos/{id}/archivo` | Bytes y `Content-Type` |
-| DELETE | `/documentos/{id}` | Descarta un borrador propio |
+| DELETE | `/documentos/{id}` | Borra un borrador o un confirmado propio, el archivo y el índice |
 | POST | `/documentos/{id}/anular` | Lo saca del resumen y de las consultas |
 | POST | `/documentos/{id}/corregir` | Actualiza el confirmado y suma el cambio |
 | GET | `/export?desde&hasta` | CSV de confirmados no anulados |
 | POST | `/tasks` | Encola una consulta |
 | POST | `/tasks/{id}/approve` | Reanuda una pausa |
-| GET | `/hilos`, `/hilos/{thread_id}` | Historial de esa persona |
+| GET | `/hilos`, `/hilos/{thread_id}` | Historial de esa persona. `?archivados=true` lista las archivadas |
+| POST | `/hilos/{thread_id}/archivar`, `/hilos/{thread_id}/desarchivar` | Oculta o vuelve a mostrar un hilo propio |
+| DELETE | `/hilos/{thread_id}` | Borra el historial de un hilo propio |
 
 Si el índice falla al confirmar, la respuesta es 200 y `indexado` queda
 `error`. El comprobante ya está en el libro. Si no hay módulo de indexación,

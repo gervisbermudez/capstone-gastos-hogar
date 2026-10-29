@@ -118,7 +118,11 @@ def test_login_invalido_401_sin_revelar_campo(tmp_path, monkeypatch) -> None:
             headers={"Authorization": f"Bearer {bien.json()['access_token']}"},
         )
         assert yo.status_code == 200
-        assert yo.json() == {"user_id": alta.json()["user_id"], "email": "ada@example.com"}
+        assert yo.json() == {
+            "user_id": alta.json()["user_id"],
+            "email": "ada@example.com",
+            "nombre": None,
+        }
         assert "password_hash" not in yo.json()
 
         sin_token = cliente.get("/auth/me")
@@ -500,6 +504,12 @@ def test_migracion_agrega_columnas_sin_romper_el_insert(tmp_path, monkeypatch) -
         await conn.close()
 
         ana = await repositorio.crear_usuario("ana@example.com", auth.hashear("clave-de-ana-larga"))
+        cuenta = await repositorio.buscar_usuario_por_id(ana)
+        assert cuenta is not None
+        assert cuenta["nombre"] is None
+        por_email = await repositorio.buscar_usuario_por_email("Ana@Example.com")
+        assert por_email is not None
+        assert por_email["nombre"] is None
         borrador = await repositorio.guardar_borrador(
             user_id=ana,
             texto="factura vieja",
@@ -521,7 +531,11 @@ def test_migracion_agrega_columnas_sin_romper_el_insert(tmp_path, monkeypatch) -
         revisada.row_factory = aiosqlite.Row
         cursor = await revisada.execute("PRAGMA table_info(comprobantes)")
         nombres = {fila["name"] for fila in await cursor.fetchall()}
+        cursor = await revisada.execute("PRAGMA table_info(usuarios)")
+        columnas_usuario = {fila["name"]: fila for fila in await cursor.fetchall()}
         await revisada.close()
         assert "vencimiento" not in nombres
+        assert "nombre" in columnas_usuario
+        assert columnas_usuario["nombre"]["notnull"] == 0
 
     asyncio.run(caso())

@@ -7,6 +7,7 @@ indexa. Si ``app.indexacion`` no está, la fila igual queda y ``indexado`` es
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from .archivos import borrar_archivo, guardar_archivo, leer_archivo
@@ -17,6 +18,7 @@ from .repositorio import (
     confirmar_documento,
     corregir_comprobante,
     descartar_borrador,
+    eliminar_comprobante,
     exportar_csv,
     guardar_borrador,
     listar_documentos,
@@ -189,11 +191,31 @@ async def confirmar(*, user_id: str, documento_id: str, factura: Factura) -> dic
     return _publico_confirmado(guardado, indexado=indexado)
 
 
+async def _olvidar_indice(user_id: str, documento_id: str) -> None:
+    """El libro ya se borró. Si el índice falla, la baja igual termina."""
+    try:
+        from app.rag import olvidar_documento
+    except ImportError:
+        return
+    try:
+        await asyncio.to_thread(olvidar_documento, user_id, documento_id)
+    except Exception as exc:
+        logger.warning(
+            "no se pudo borrar el índice del comprobante %s: %s",
+            documento_id,
+            type(exc).__name__,
+        )
+
+
 async def descartar(*, user_id: str, documento_id: str) -> None:
-    ok = await descartar_borrador(user_id=user_id, documento_id=documento_id)
-    if not ok:
+    """Borra un borrador o un confirmado de esa persona, el archivo y el índice."""
+    es_borrador = await descartar_borrador(user_id=user_id, documento_id=documento_id)
+    es_confirmado = await eliminar_comprobante(user_id=user_id, documento_id=documento_id)
+    if not es_borrador and not es_confirmado:
         raise ArchivoRechazado(404, _DETALLE_AUSENTE)
     await borrar_archivo(user_id, documento_id)
+    if es_confirmado:
+        await _olvidar_indice(user_id, documento_id)
 
 
 async def abrir_archivo(*, user_id: str, documento_id: str) -> tuple[bytes, str]:

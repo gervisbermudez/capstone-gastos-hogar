@@ -1,8 +1,23 @@
-import { Alert, Box, Button, EmptyState, Flex, HStack, Stack, Text, Textarea } from "@chakra-ui/react"
+import {
+  Alert,
+  Box,
+  Button,
+  CloseButton,
+  Dialog,
+  EmptyState,
+  Flex,
+  HStack,
+  Portal,
+  Stack,
+  Text,
+  Textarea,
+} from "@chakra-ui/react"
+import type { JSX } from "react"
 import { Link } from "react-router"
 import type { FotoAdjunto, MensajeGuardado } from "../../almacen"
-import { ETIQUETA_CATEGORIA, type DocumentoDetalle } from "../../api/tipos"
+import { etiquetaCategoria, type DocumentoDetalle } from "../../api/tipos"
 import { fotoDesdeCita, textoVisible } from "../../chat/contexto"
+import { MenuConversacion } from "./ListaConversaciones"
 
 export const EJEMPLOS_CHAT = [
   "¿Cuánto pagué de expensas en marzo?",
@@ -92,11 +107,24 @@ function DetalleFicha({ texto }: { texto: string }) {
 
 export function EncabezadoChat({
   titulo,
+  archivada = false,
+  puedeGestionar = false,
+  bloqueado = false,
   onAbrirHistorial,
+  onArchivar,
+  onRestaurar,
+  onEliminar,
 }: {
   titulo: string
+  archivada?: boolean
+  puedeGestionar?: boolean
+  bloqueado?: boolean
   onAbrirHistorial: () => void
+  onArchivar?: () => void
+  onRestaurar?: () => void
+  onEliminar?: () => void
 }) {
+  const muestraAcciones = puedeGestionar && onArchivar && onRestaurar && onEliminar
   return (
     <Flex
       align="center"
@@ -123,7 +151,117 @@ export function EncabezadoChat({
       <Text flex="1" minW={0} truncate fontFamily="heading" fontWeight="600" fontSize="lg" color="fg">
         {titulo}
       </Text>
+      {archivada ? (
+        <Text flexShrink={0} fontSize="xs" fontWeight="medium" color="fg.muted">
+          Archivada
+        </Text>
+      ) : null}
+      {muestraAcciones ? (
+        <MenuConversacion
+          titulo={titulo}
+          archivada={archivada}
+          bloqueado={bloqueado}
+          onArchivar={onArchivar}
+          onRestaurar={onRestaurar}
+          onEliminar={onEliminar}
+        />
+      ) : null}
     </Flex>
+  )
+}
+
+export function DialogoEliminarConversacion({
+  titulo,
+  abierto,
+  ocupado,
+  error,
+  onCerrar,
+  onConfirmar,
+}: {
+  titulo: string
+  abierto: boolean
+  ocupado: boolean
+  error: string | null
+  onCerrar: () => void
+  onConfirmar: () => void
+}): JSX.Element {
+  return (
+    <Dialog.Root
+      open={abierto}
+      onOpenChange={(detalle) => {
+        if (!detalle.open) onCerrar()
+      }}
+      closeOnEscape={!ocupado}
+      closeOnInteractOutside={!ocupado}
+    >
+      <Portal>
+        <Dialog.Backdrop />
+        <Dialog.Positioner>
+          <Dialog.Content
+            bg="bg.panel"
+            color="fg"
+            borderWidth="0"
+            borderRadius="l3"
+            boxShadow="0 24px 60px rgba(28, 27, 23, 0.12)"
+            w="calc(100vw - 2rem)"
+            maxW="28rem"
+            _dark={{ borderWidth: "1px", borderColor: "borde" }}
+          >
+            <Dialog.Header>
+              <Dialog.Title fontWeight="500" fontSize="1.5rem" letterSpacing="-0.03em" color="fg">
+                Eliminar conversación
+              </Dialog.Title>
+            </Dialog.Header>
+            <Dialog.Body>
+              <Stack gap={4}>
+                <Dialog.Description color="fg.muted">
+                  ¿Eliminar{" "}
+                  <Text as="span" fontWeight="medium" color="fg" overflowWrap="anywhere">
+                    {titulo}
+                  </Text>
+                  ? Se borra el historial y no se puede deshacer.
+                </Dialog.Description>
+                {error ? (
+                  <Alert.Root status="error">
+                    <Alert.Indicator />
+                    <Alert.Description>{error}</Alert.Description>
+                  </Alert.Root>
+                ) : null}
+              </Stack>
+            </Dialog.Body>
+            <Dialog.Footer gap={3}>
+              <Button
+                type="button"
+                variant="ghost"
+                borderRadius="full"
+                color="fg"
+                disabled={ocupado}
+                onClick={onCerrar}
+              >
+                Cancelar
+              </Button>
+              <Button
+                type="button"
+                borderRadius="full"
+                loading={ocupado}
+                aria-label={`Confirmar eliminación de ${titulo}`}
+                onClick={onConfirmar}
+                css={{
+                  bg: "fg",
+                  color: "fg.sobreSolido",
+                  _hover: { bg: "solido.hover", color: "fg.sobreSolido" },
+                }}
+              >
+                Eliminar
+              </Button>
+            </Dialog.Footer>
+            <Dialog.CloseTrigger asChild>
+              <CloseButton aria-label="Cerrar" color="fg" disabled={ocupado} />
+            </Dialog.CloseTrigger>
+          </Dialog.Content>
+        </Dialog.Positioner>
+      </Portal>
+    </Dialog.Root>
   )
 }
 
@@ -137,7 +275,7 @@ export type AdjuntoComprobante = {
 function resumenCampos(campos: DocumentoDetalle["campos"]): { titulo: string; detalle: string } {
   const numero = campos.numero_comprobante?.trim()
   const detalle = [
-    campos.categoria ? ETIQUETA_CATEGORIA[campos.categoria] : "Sin categoría",
+    etiquetaCategoria(campos.categoria),
     campos.periodo?.trim() || "Sin período",
     numero ? `Nº ${numero}` : null,
   ]

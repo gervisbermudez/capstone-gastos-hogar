@@ -1,4 +1,8 @@
-"""Catálogo de categorías por persona. No cambia los comprobantes."""
+"""Catálogo de categorías por persona.
+
+El nombre se puede asignar al confirmar o corregir un gasto. Borrar o
+renombrar una fila no reescribe los comprobantes ya guardados.
+"""
 
 from __future__ import annotations
 

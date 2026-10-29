@@ -2,6 +2,7 @@
 
 POST /tasks no corre el agente. GET /tasks/{id} lee Redis y no bloquea.
 WS /tasks/{id}/ws avisa cada cambio por un socket.
+WS /sesion/ws es el canal de la persona: chat, cargas y notificaciones.
 POST /tasks/{id}/approve reanuda un hilo que quedó pausado.
 """
 
@@ -26,12 +27,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from . import repositorio
 from .auth import usuario_actual, usuario_de_saludo
 from .cache_resumen import publicar_redis
+from .canal import Sala, origen_del_socket
+from .cargas import marcar_cortadas, worker_cargas
 from .cupo import exigir_cupo
 from .esquemas import (
     Aprobacion,
     ConsultaTarea,
-    HiloDetalle,
-    ListaHilos,
     TareaCreada,
     TareaEstado,
     TareaReanudada,
@@ -116,19 +117,28 @@ async def lifespan(app: FastAPI):
     cortados = await marcar_cortados(cliente)
     if cortados:
         logger.warning("%s jobs quedaron FAILED porque el worker se había cortado.", cortados)
+    cortadas = await marcar_cortadas(cliente)
+    if cortadas:
+        logger.warning("%s cargas quedaron en falla porque el worker se había cortado.", cortadas)
 
+    sala = Sala()
+    await sala.arrancar(cliente)
+    app.state.sala = sala
     stop = asyncio.Event()
     tarea = asyncio.create_task(worker_loop(cliente, app.state.graph, stop))
+    tarea_cargas = asyncio.create_task(worker_cargas(cliente, stop))
     publicar_redis(cliente)
     try:
         yield
     finally:
         publicar_redis(None)
         stop.set()
-        try:
-            await asyncio.wait_for(tarea, timeout=15)
-        except asyncio.TimeoutError:
-            tarea.cancel()
+        await sala.cerrar()
+        for pendiente in (tarea, tarea_cargas):
+            try:
+                await asyncio.wait_for(pendiente, timeout=15)
+            except asyncio.TimeoutError:
+                pendiente.cancel()
         await cliente.aclose()
         contexto.__exit__(None, None, None)
 
@@ -180,6 +190,11 @@ async def crear_tarea(
 ) -> TareaCreada:
     user_id = _id_usuario(usuario)
     await exigir_cupo(app.state.redis, user_id, "consultas")
+    if consulta.thread_id is not None and await repositorio.hilo_esta_eliminado(
+        user_id=user_id,
+        thread_id=consulta.thread_id,
+    ):
+        raise HTTPException(status_code=404, detail="No existe ese hilo")
     try:
         thread_id = await reclamar_hilo(app.state.redis, user_id, consulta.thread_id)
     except HiloInvalido:
@@ -220,13 +235,6 @@ _FIN_SOCKET = object()
 _WS_ORIGEN = 1008
 _WS_SESION = 4401
 _WS_JOB = 4404
-
-
-def _origen_del_socket(websocket: WebSocket) -> bool:
-    """Mismo origen que el CORS. El navegador no manda el header Bearer en el handshake."""
-    permitido = os.getenv("FRONTEND_ORIGIN", "").strip().rstrip("/")
-    origen = (websocket.headers.get("origin") or "").rstrip("/")
-    return bool(permitido) and origen == permitido
 
 
 async def _cerrar_socket(websocket: WebSocket, code: int) -> None:
@@ -285,7 +293,7 @@ async def _avisar_por_socket(websocket: WebSocket, redis: Any, job_id: str) -> N
 @app.websocket("/tasks/{job_id}/ws")
 async def socket_tarea(websocket: WebSocket, job_id: str) -> None:
     """Un socket por consulta. El GET de al lado sigue sin bloquear."""
-    if not _origen_del_socket(websocket):
+    if not origen_del_socket(websocket):
         await websocket.accept()
         await _cerrar_socket(websocket, _WS_ORIGEN)
         return
@@ -330,27 +338,6 @@ async def aprobar(
     return TareaReanudada(job_id=job_id, status=PENDING)
 
 
-@app.get("/hilos", response_model=ListaHilos)
-async def listar_hilos(
-    usuario: Annotated[object, Depends(usuario_actual)],
-) -> ListaHilos:
-    user_id = _id_usuario(usuario)
-    items = await repositorio.listar_hilos(user_id=user_id)
-    return ListaHilos.model_validate({"items": items})
-
-
-@app.get("/hilos/{thread_id}", response_model=HiloDetalle)
-async def ver_hilo(
-    thread_id: str,
-    usuario: Annotated[object, Depends(usuario_actual)],
-) -> HiloDetalle:
-    user_id = _id_usuario(usuario)
-    datos = await repositorio.obtener_hilo(user_id=user_id, thread_id=thread_id)
-    if datos is None:
-        raise HTTPException(status_code=404, detail="No existe ese hilo")
-    return HiloDetalle.model_validate(datos)
-
-
 def _montar_router(modulo: str) -> None:
     """Incluye el router de un módulo hermano si ese agente ya lo creó.
 
@@ -369,3 +356,5 @@ def _montar_router(modulo: str) -> None:
 _montar_router(".rutas_auth")
 _montar_router(".rutas_documentos")
 _montar_router(".rutas_categorias")
+_montar_router(".rutas_notificaciones")
+_montar_router(".rutas_hilos")

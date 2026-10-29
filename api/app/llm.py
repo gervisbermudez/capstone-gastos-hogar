@@ -12,6 +12,23 @@ from pydantic import BaseModel
 from .texto import extraer_texto, objeto_json
 
 
+def describir_modelo() -> dict[str, str | None]:
+    """Proveedor y modelo del entorno. No arma el cliente ni lee claves.
+
+    ``LLM_PROVIDER`` vale ``gemini`` solo en ese caso. Cualquier otro valor,
+    incluido el default, usa ``OPENAI_MODEL``. El modelo vacío queda en null.
+    """
+    crudo = os.getenv("LLM_PROVIDER", "openai").strip().lower()
+    if crudo == "gemini":
+        proveedor = "gemini"
+        variable = "GEMINI_MODEL"
+    else:
+        proveedor = "openai"
+        variable = "OPENAI_MODEL"
+    modelo = os.getenv(variable, "").strip()
+    return {"proveedor": proveedor, "modelo": modelo or None}
+
+
 def _nombre_modelo(variable: str) -> str:
     nombre = os.getenv(variable, "").strip()
     if not nombre:

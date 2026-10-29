@@ -42,7 +42,7 @@ export type UsuarioActual = {
 
 export type CamposDocumento = {
   proveedor?: string
-  categoria?: Categoria
+  categoria?: string
   periodo?: string
   monto?: string
   moneda?: string
@@ -93,7 +93,7 @@ export type ListaDocumentos = {
 
 export type Factura = {
   proveedor: string
-  categoria: Categoria
+  categoria: string
   periodo: string
   monto: string
   moneda: string
@@ -106,7 +106,7 @@ export type TotalMes = {
 }
 
 export type TotalCategoria = {
-  categoria: Categoria
+  categoria: string
   total: string
 }
 
@@ -132,6 +132,46 @@ export type TareaEstado = {
   status: EstadoTarea
   thread_id: string
   result: string | null
+}
+
+export type AccionNotificacion = {
+  etiqueta: string
+  ruta: string
+}
+
+export type RecursoEvento = {
+  clase: string
+  id: string
+}
+
+export type Notificacion = {
+  id: string
+  tipo: string
+  titulo: string
+  cuerpo: string
+  accion: AccionNotificacion | null
+  recurso: RecursoEvento | null
+  leida: boolean
+  creada_en: string
+}
+
+export type ListaNotificaciones = {
+  items: Notificacion[]
+  no_leidas: number
+}
+
+export type CargaAceptada = {
+  job_id: string
+  status: "PENDING"
+}
+
+export type FaseCarga = "recibida" | "extrayendo" | "lista" | "falla"
+
+export type CargaEstado = {
+  job_id: string
+  fase: FaseCarga
+  documento_id: string | null
+  mensaje: string | null
 }
 
 export type RolMensaje = "persona" | "asistente" | "nota"
@@ -171,6 +211,24 @@ export const ETIQUETA_CATEGORIA: Record<Categoria, string> = {
   servicios: "Servicios",
   expensas: "Expensas",
   alquiler: "Alquiler",
+}
+
+export function esCategoriaFija(valor: string): valor is Categoria {
+  return valor === "servicios" || valor === "expensas" || valor === "alquiler"
+}
+
+export function valorCategoria(nombre: string): string {
+  const texto = nombre.trim()
+  const clave = texto.toLowerCase()
+  return esCategoriaFija(clave) ? clave : texto
+}
+
+export function etiquetaCategoria(valor: string | null | undefined): string {
+  if (valor == null || valor.trim() === "") return "Sin categoría"
+  const texto = valor.trim()
+  const clave = texto.toLowerCase()
+  if (esCategoriaFija(clave)) return ETIQUETA_CATEGORIA[clave]
+  return texto
 }
 
 export function esBorrador(doc: DocumentoDetalle): doc is DocumentoBorrador {

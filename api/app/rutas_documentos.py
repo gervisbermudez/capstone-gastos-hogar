@@ -2,17 +2,22 @@
 
 from __future__ import annotations
 
+import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
 from starlette.datastructures import UploadFile
 
+from .archivos import borrar_pendiente, guardar_pendiente
 from .auth import usuario_actual
 from .cache_resumen import invalidar
+from .cargas import crear_carga, leer as leer_carga, publico as publico_carga
 from .cupo import exigir_cupo
 from .esquemas import (
     CAMPO_ARCHIVO,
+    CargaAceptada,
+    CargaEstado,
     DocumentoBorrador,
     DocumentoConfirmado,
     DocumentoDetalle,
@@ -21,7 +26,7 @@ from .esquemas import (
     ListaHilos,
     RangoResumen,
 )
-from .extraccion import DETALLE_MODELO, ArchivoRechazado, ErrorDeModelo
+from .extraccion import DETALLE_TIPO, ArchivoRechazado, detectar_tipo
 from .ingesta import (
     TAMANO_MAXIMO_BYTES,
     abrir_archivo,
@@ -33,7 +38,6 @@ from .ingesta import (
     listar,
     listar_hilos,
     obtener,
-    recibir,
 )
 
 router = APIRouter(tags=["documentos"])
@@ -78,20 +82,44 @@ async def _olvidar_resumen(request: Request, user_id: str) -> None:
     await invalidar(getattr(request.app.state, "redis", None), user_id)
 
 
-@router.post("/documentos", status_code=201, response_model=DocumentoBorrador)
+@router.post("/documentos", status_code=202, response_model=CargaAceptada)
 async def crear_documento(
     request: Request,
     usuario: dict = Depends(usuario_actual),
-) -> DocumentoBorrador:
+) -> CargaAceptada:
+    """Valida el archivo y lo encola. La extracción no corre en este request."""
     try:
         datos = await _bytes_del_archivo(request)
-        await exigir_cupo(getattr(request.app.state, "redis", None), _user_id(usuario), "cargas")
-        cuerpo = await recibir(datos, user_id=_user_id(usuario))
+        if detectar_tipo(datos) is None:
+            raise ArchivoRechazado(415, DETALLE_TIPO)
+        user_id = _user_id(usuario)
+        redis = getattr(request.app.state, "redis", None)
+        await exigir_cupo(redis, user_id, "cargas")
+        if redis is None:
+            raise HTTPException(status_code=503, detail="Redis no responde")
+        job_id = str(uuid.uuid4())
+        await guardar_pendiente(user_id=user_id, job_id=job_id, datos=datos)
+        try:
+            await crear_carga(redis, job_id, user_id)
+        except Exception:
+            await borrar_pendiente(user_id, job_id)
+            raise
     except ArchivoRechazado as exc:
         raise HTTPException(status_code=exc.status, detail=exc.detail) from None
-    except ErrorDeModelo:
-        raise HTTPException(status_code=502, detail=DETALLE_MODELO) from None
-    return DocumentoBorrador.model_validate(cuerpo)
+    return CargaAceptada(job_id=job_id, status="PENDING")
+
+
+@router.get("/cargas/{job_id}", response_model=CargaEstado)
+async def ver_carga(
+    job_id: str,
+    request: Request,
+    usuario: dict = Depends(usuario_actual),
+) -> CargaEstado:
+    redis = getattr(request.app.state, "redis", None)
+    job = await leer_carga(redis, job_id) if redis is not None else None
+    if not isinstance(job, dict) or job.get("user_id") != _user_id(usuario):
+        raise HTTPException(status_code=404, detail="No existe esa carga")
+    return CargaEstado.model_validate(publico_carga(job))
 
 
 @router.get("/documentos", response_model=ListaDocumentos)
@@ -165,12 +193,14 @@ async def archivo_documento(
 @router.delete("/documentos/{id}", status_code=204)
 async def descartar_documento(
     id: str,
+    request: Request,
     usuario: dict = Depends(usuario_actual),
 ) -> Response:
     try:
         await descartar(user_id=_user_id(usuario), documento_id=id)
     except ArchivoRechazado as exc:
         raise HTTPException(status_code=exc.status, detail=exc.detail) from None
+    await _olvidar_resumen(request, _user_id(usuario))
     return Response(status_code=204)
 
 

@@ -93,6 +93,10 @@ export function CampoProveedor({
             userSelect: "text",
             focusVisibleRing: "outside",
             focusRingColor: "marca.sol",
+            "&[aria-invalid=true]": {
+              borderColor: "estado.falla",
+              focusRingColor: "estado.falla",
+            },
           }}
         />
         <Combobox.IndicatorGroup>

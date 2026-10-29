@@ -17,9 +17,9 @@ Hay dos recuerdos y no se mezclan:
 
 1. Crear una cuenta e ingresar con email y contraseña.
 2. Subir un comprobante (jpeg, png, webp o pdf) o sacar una foto.
-3. Ver los datos leídos, corregirlos y confirmarlos, o descartar el borrador.
+3. Ver los datos leídos, corregirlos y confirmarlos, o eliminar el comprobante.
 4. Ver el tablero del año en curso: total gastado, gráficos por mes y por categoría, y la lista de confirmados.
-5. Abrir un confirmado para corregirlo o anularlo.
+5. Abrir un confirmado para corregirlo, anularlo o eliminarlo.
 6. Preguntar en el chat y seguir en la misma conversación.
 7. Aprobar o rechazar una acción del chat antes de que tenga efecto.
 
@@ -84,7 +84,7 @@ La revisión muestra la vista previa del archivo y, si sigue en borrador, el tex
 
 Si el índice no puede guardar el texto, el comprobante igual queda confirmado. La pantalla avisa: el monto ya quedó guardado. El texto de la factura todavía no se puede buscar. Confirmar de nuevo el mismo comprobante no pisa los datos; vuelve a intentar el índice.
 
-**Descartar** borra el borrador y el archivo. Pide confirmación y no se puede deshacer. Un comprobante ya confirmado no se descarta por esta vía.
+**Eliminar** borra el comprobante y el archivo, sea borrador o confirmado, incluso si ya estaba anulado. Pide confirmación y no se puede deshacer. En el tablero, un borrador también se puede descartar.
 
 ## Tablero
 
@@ -103,6 +103,7 @@ Un confirmado se abre desde la lista. Al principio los campos están bloqueados.
 
 - **Corregir** los habilita, guarda los datos nuevos en el libro y suma el cambio al historial visible (campo, antes y después). **Cancelar** vuelve a los valores guardados. El texto indexado no se vuelve a leer: una pregunta sobre el texto puede seguir citando la versión anterior.
 - **Anular** lo saca del tablero, del CSV y de las respuestas de montos del chat. El comprobante no se borra: si se abre por su enlace, se ve como **Anulado**, sin poder editarlo. El tablero no lo lista.
+- **Eliminar** borra la ficha, el archivo y el texto indexado. Sale del libro, del CSV y de las consultas. El enlace deja de abrir el comprobante. También se puede eliminar uno que ya estaba anulado.
 
 ## Chat
 
@@ -118,7 +119,9 @@ Una pregunta de montos no se responde con el índice. Una pregunta sobre el text
 
 La respuesta cita un comprobante como `[comprobante {id} | proveedor | categoría | período]`. En el chat, esa marca y `Borrador: {id}` son enlaces a la revisión.
 
-La misma conversación se sigue con el hilo en curso. **Nueva conversación** empieza otra en esta pestaña. Arriba aparecen hasta 30 conversaciones de esa persona, con la primera frase como título. Al abrir una que esta pestaña no tiene guardada, se trae el historial del servidor. Salir borra la copia local; el historial del servidor queda.
+La misma conversación se sigue con el hilo en curso. **Nueva** empieza otra en esta pestaña. A la izquierda aparecen hasta 30 conversaciones de esa persona, con la primera frase como título. Al abrir una que esta pestaña no tiene guardada, se trae el historial del servidor. Salir borra la copia local; el historial del servidor queda.
+
+Cada conversación se puede **archivar** o **eliminar**. Archivar la saca de la lista activa y la deja en **Archivadas**, desde donde se restaura. Eliminar borra el historial y no se puede deshacer. Mientras hay una consulta o una decisión pendiente, esas acciones quedan bloqueadas. Si se sigue escribiendo en una conversación archivada, vuelve a la lista activa.
 
 Hay un tope de 50 consultas por persona y por día UTC. Al pasarlo, el envío se rechaza con «Llegaste al tope de consultas de hoy.» Si la consulta falla, el mensaje es una frase corta. No muestra el error interno.
 
@@ -152,5 +155,6 @@ No hay recuperación de contraseña olvidada, ingreso con un proveedor externo, 
 - La sesión de la pestaña vence a los 15 minutos. Hay que volver a ingresar.
 - Corregir un confirmado actualiza el libro al momento. El texto que el chat puede citar no se reindexa con esa corrección.
 - Anular lo saca de los números. El enlace directo sigue abriendo la ficha en solo lectura.
+- Eliminar borra el comprobante. El enlace deja de existir.
 - Si al confirmar el índice falla, los gráficos y las preguntas de montos ya cuentan ese comprobante. Las preguntas sobre el texto, no.
 - Los cupos diarios se reinician a la medianoche UTC: 30 cargas y 50 consultas.

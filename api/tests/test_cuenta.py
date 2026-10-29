@@ -86,12 +86,12 @@ def test_cambiar_email_normaliza_y_el_token_sigue(tmp_path, monkeypatch) -> None
             headers=headers,
         )
         assert cambio.status_code == 200
-        assert cambio.json() == {"user_id": user_id, "email": "nueva@example.com"}
+        assert cambio.json() == {"user_id": user_id, "email": "nueva@example.com", "nombre": None}
         assert "password_hash" not in cambio.json()
 
         yo = cliente.get("/auth/me", headers=headers)
         assert yo.status_code == 200
-        assert yo.json() == {"user_id": user_id, "email": "nueva@example.com"}
+        assert yo.json() == {"user_id": user_id, "email": "nueva@example.com", "nombre": None}
 
         login = cliente.post(
             "/auth/login",
@@ -111,7 +111,7 @@ def test_cambiar_email_normaliza_y_el_token_sigue(tmp_path, monkeypatch) -> None
             headers=headers,
         )
         assert mismo.status_code == 200
-        assert mismo.json() == {"user_id": user_id, "email": "nueva@example.com"}
+        assert mismo.json() == {"user_id": user_id, "email": "nueva@example.com", "nombre": None}
         assert asyncio.run(_hash(user_id)) == antes
 
 
@@ -133,7 +133,7 @@ def test_email_de_otra_cuenta_es_409(tmp_path, monkeypatch) -> None:
 
         yo = cliente.get("/auth/me", headers=headers)
         assert yo.status_code == 200
-        assert yo.json() == {"user_id": ada["user_id"], "email": "ada@example.com"}
+        assert yo.json() == {"user_id": ada["user_id"], "email": "ada@example.com", "nombre": None}
         assert asyncio.run(_hash(ada["user_id"])) == antes
         sigue = cliente.post(
             "/auth/login",
@@ -477,7 +477,11 @@ def test_baja_no_toca_datos_ajenos(tmp_path, monkeypatch) -> None:
             assert yo.json()["detail"] == sin_token.json()["detail"]
             beto = cliente.get("/auth/me", headers=_bearer(auth.emitir_token(datos["beto"])))
             assert beto.status_code == 200
-            assert beto.json() == {"user_id": datos["beto"], "email": "beto@example.com"}
+            assert beto.json() == {
+                "user_id": datos["beto"],
+                "email": "beto@example.com",
+                "nombre": None,
+            }
         assert remoto.llamadas == [
             {"filter": {"user_id": datos["ana"]}, "namespace": "comprobantes"}
         ]
@@ -512,3 +516,277 @@ def test_baja_responde_204_si_pinecone_falla(tmp_path, monkeypatch, caplog) -> N
         asyncio.run(_ajeno_intacto(datos))
     finally:
         _restaurar_rag(anterior)
+
+
+def _alta(cliente: TestClient, email: str = "ada@example.com") -> tuple[str, dict[str, str]]:
+    alta = _registrar(cliente, email)
+    return alta["user_id"], _bearer(alta["access_token"])
+
+
+def _claves_de_prueba(monkeypatch) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-openai-no-sale")
+    monkeypatch.setenv("GEMINI_API_KEY", "sk-gemini-no-sale")
+
+    def explotar():
+        raise RuntimeError("no hay que armar el cliente")
+
+    monkeypatch.setattr("app.llm.armar_llm", explotar)
+
+
+def _assert_sin_claves(respuesta) -> None:
+    assert set(respuesta.json()) == {"proveedor", "modelo"}
+    texto = respuesta.text.lower()
+    assert "api_key" not in texto
+    assert "openai_api_key" not in texto
+    assert "gemini_api_key" not in texto
+    assert "sk-openai-no-sale" not in respuesta.text
+    assert "sk-gemini-no-sale" not in respuesta.text
+
+
+def test_guardar_nombre_y_me_lo_devuelve(tmp_path, monkeypatch) -> None:
+    _entorno(monkeypatch, tmp_path)
+    with _cliente() as cliente:
+        user_id, headers = _alta(cliente)
+        cambio = cliente.post("/auth/nombre", json={"nombre": "Ada"}, headers=headers)
+        assert cambio.status_code == 200
+        assert cambio.json() == {
+            "user_id": user_id,
+            "email": "ada@example.com",
+            "nombre": "Ada",
+        }
+        yo = cliente.get("/auth/me", headers=headers)
+        assert yo.status_code == 200
+        assert yo.json() == cambio.json()
+
+
+def test_nombre_recorta_espacios(tmp_path, monkeypatch) -> None:
+    _entorno(monkeypatch, tmp_path)
+    with _cliente() as cliente:
+        user_id, headers = _alta(cliente)
+        cambio = cliente.post(
+            "/auth/nombre",
+            json={"nombre": "  Ana María_2-b  "},
+            headers=headers,
+        )
+        assert cambio.status_code == 200
+        assert cambio.json() == {
+            "user_id": user_id,
+            "email": "ada@example.com",
+            "nombre": "Ana María_2-b",
+        }
+        yo = cliente.get("/auth/me", headers=headers)
+        assert yo.json()["nombre"] == "Ana María_2-b"
+
+
+def test_vacio_y_null_borran_el_nombre(tmp_path, monkeypatch) -> None:
+    _entorno(monkeypatch, tmp_path)
+    with _cliente() as cliente:
+        user_id, headers = _alta(cliente)
+        esperado = {"user_id": user_id, "email": "ada@example.com", "nombre": None}
+        for valor in ("", "   ", " " * 41, None):
+            puesto = cliente.post("/auth/nombre", json={"nombre": "Ada"}, headers=headers)
+            assert puesto.status_code == 200
+            assert puesto.json()["nombre"] == "Ada"
+            borrado = cliente.post("/auth/nombre", json={"nombre": valor}, headers=headers)
+            assert borrado.status_code == 200
+            assert borrado.json() == esperado
+            yo = cliente.get("/auth/me", headers=headers)
+            assert yo.json() == esperado
+
+
+def test_nombre_de_41_caracteres_es_422(tmp_path, monkeypatch) -> None:
+    _entorno(monkeypatch, tmp_path)
+    with _cliente() as cliente:
+        user_id, headers = _alta(cliente)
+        puesto = cliente.post("/auth/nombre", json={"nombre": "Ada"}, headers=headers)
+        assert puesto.status_code == 200
+        largo = cliente.post("/auth/nombre", json={"nombre": "á" * 41}, headers=headers)
+        assert largo.status_code == 422
+        yo = cliente.get("/auth/me", headers=headers)
+        assert yo.json()["nombre"] == "Ada"
+        justo = cliente.post(
+            "/auth/nombre",
+            json={"nombre": f"  {'á' * 40}  "},
+            headers=headers,
+        )
+        assert justo.status_code == 200
+        assert justo.json() == {
+            "user_id": user_id,
+            "email": "ada@example.com",
+            "nombre": "á" * 40,
+        }
+
+
+def test_nombre_con_caracteres_invalidos_es_422(tmp_path, monkeypatch) -> None:
+    _entorno(monkeypatch, tmp_path)
+    with _cliente() as cliente:
+        _, headers = _alta(cliente)
+        puesto = cliente.post("/auth/nombre", json={"nombre": "Ada"}, headers=headers)
+        assert puesto.status_code == 200
+        for valor in ("Ada@", "hola!", "a/b", "Ada😀"):
+            malo = cliente.post("/auth/nombre", json={"nombre": valor}, headers=headers)
+            assert malo.status_code == 422
+            yo = cliente.get("/auth/me", headers=headers)
+            assert yo.json()["nombre"] == "Ada"
+
+
+def test_nombre_no_pide_contrasena(tmp_path, monkeypatch) -> None:
+    _entorno(monkeypatch, tmp_path)
+    with _cliente() as cliente:
+        user_id, headers = _alta(cliente)
+        antes = asyncio.run(_hash(user_id))
+        cambio = cliente.post("/auth/nombre", json={"nombre": "Ada"}, headers=headers)
+        assert cambio.status_code == 200
+        assert cambio.json()["nombre"] == "Ada"
+        assert "password" not in cambio.json()
+        assert asyncio.run(_hash(user_id)) == antes
+        con_clave = cliente.post(
+            "/auth/nombre",
+            json={"nombre": "Otra", "password": CLAVE},
+            headers=headers,
+        )
+        assert con_clave.status_code == 422
+        yo = cliente.get("/auth/me", headers=headers)
+        assert yo.json()["nombre"] == "Ada"
+        assert asyncio.run(_hash(user_id)) == antes
+
+
+def test_dos_usuarios_pueden_repetir_el_nombre(tmp_path, monkeypatch) -> None:
+    _entorno(monkeypatch, tmp_path)
+    with _cliente() as cliente:
+        ada_id, ada = _alta(cliente, "ada@example.com")
+        grace_id, grace = _alta(cliente, "grace@example.com")
+        for headers in (ada, grace):
+            cambio = cliente.post("/auth/nombre", json={"nombre": "Casa"}, headers=headers)
+            assert cambio.status_code == 200
+            assert cambio.json()["nombre"] == "Casa"
+        yo_ada = cliente.get("/auth/me", headers=ada)
+        yo_grace = cliente.get("/auth/me", headers=grace)
+        assert yo_ada.json() == {
+            "user_id": ada_id,
+            "email": "ada@example.com",
+            "nombre": "Casa",
+        }
+        assert yo_grace.json() == {
+            "user_id": grace_id,
+            "email": "grace@example.com",
+            "nombre": "Casa",
+        }
+        assert ada_id != grace_id
+
+
+def test_nombre_sin_token_es_401(tmp_path, monkeypatch) -> None:
+    _entorno(monkeypatch, tmp_path)
+    with _cliente() as cliente:
+        sin_token = cliente.post("/auth/nombre", json={"nombre": "Ada"})
+        assert sin_token.status_code == 401
+        me = cliente.get("/auth/me")
+        assert sin_token.json()["detail"] == me.json()["detail"]
+
+
+def test_cambiar_email_conserva_el_nombre(tmp_path, monkeypatch) -> None:
+    _entorno(monkeypatch, tmp_path)
+    with _cliente() as cliente:
+        user_id, headers = _alta(cliente)
+        puesto = cliente.post(
+            "/auth/nombre",
+            json={"nombre": "Ada Lovelace"},
+            headers=headers,
+        )
+        assert puesto.status_code == 200
+        cambio = cliente.post(
+            "/auth/email",
+            json={"email": "  Nueva@Example.com ", "password": CLAVE},
+            headers=headers,
+        )
+        assert cambio.status_code == 200
+        assert cambio.json() == {
+            "user_id": user_id,
+            "email": "nueva@example.com",
+            "nombre": "Ada Lovelace",
+        }
+        yo = cliente.get("/auth/me", headers=headers)
+        assert yo.json() == cambio.json()
+
+
+def test_modelo_sin_token_es_401(tmp_path, monkeypatch) -> None:
+    _entorno(monkeypatch, tmp_path)
+    with _cliente() as cliente:
+        sin_token = cliente.get("/auth/modelo")
+        assert sin_token.status_code == 401
+        me = cliente.get("/auth/me")
+        assert sin_token.json()["detail"] == me.json()["detail"]
+
+
+def test_modelo_openai(tmp_path, monkeypatch) -> None:
+    _entorno(monkeypatch, tmp_path)
+    _claves_de_prueba(monkeypatch)
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_MODEL", "gpt-prueba")
+    monkeypatch.setenv("GEMINI_MODEL", "no-es-este")
+    with _cliente() as cliente:
+        _, headers = _alta(cliente)
+        respuesta = cliente.get("/auth/modelo", headers=headers)
+        assert respuesta.status_code == 200
+        assert respuesta.json() == {"proveedor": "openai", "modelo": "gpt-prueba"}
+        _assert_sin_claves(respuesta)
+
+        monkeypatch.setenv("LLM_PROVIDER", "  OpenAI ")
+        monkeypatch.setenv("OPENAI_MODEL", "  gpt-recortado  ")
+        recortado = cliente.get("/auth/modelo", headers=headers)
+        assert recortado.status_code == 200
+        assert recortado.json() == {"proveedor": "openai", "modelo": "gpt-recortado"}
+
+        monkeypatch.setenv("LLM_PROVIDER", "anthropic")
+        monkeypatch.setenv("OPENAI_MODEL", "gpt-fallback")
+        otro = cliente.get("/auth/modelo", headers=headers)
+        assert otro.status_code == 200
+        assert otro.json() == {"proveedor": "openai", "modelo": "gpt-fallback"}
+        _assert_sin_claves(otro)
+
+
+def test_modelo_gemini(tmp_path, monkeypatch) -> None:
+    _entorno(monkeypatch, tmp_path)
+    _claves_de_prueba(monkeypatch)
+    monkeypatch.setenv("LLM_PROVIDER", "gemini")
+    monkeypatch.setenv("GEMINI_MODEL", "gemini-prueba")
+    monkeypatch.setenv("OPENAI_MODEL", "no-es-este")
+    with _cliente() as cliente:
+        _, headers = _alta(cliente)
+        respuesta = cliente.get("/auth/modelo", headers=headers)
+        assert respuesta.status_code == 200
+        assert respuesta.json() == {"proveedor": "gemini", "modelo": "gemini-prueba"}
+        _assert_sin_claves(respuesta)
+
+        monkeypatch.setenv("LLM_PROVIDER", "  GEMINI  ")
+        monkeypatch.setenv("GEMINI_MODEL", "  gemini-recortado  ")
+        recortado = cliente.get("/auth/modelo", headers=headers)
+        assert recortado.status_code == 200
+        assert recortado.json() == {"proveedor": "gemini", "modelo": "gemini-recortado"}
+        _assert_sin_claves(recortado)
+
+
+def test_modelo_ausente_es_null(tmp_path, monkeypatch) -> None:
+    _entorno(monkeypatch, tmp_path)
+    _claves_de_prueba(monkeypatch)
+    monkeypatch.delenv("LLM_PROVIDER", raising=False)
+    monkeypatch.delenv("OPENAI_MODEL", raising=False)
+    with _cliente() as cliente:
+        _, headers = _alta(cliente)
+        respuesta = cliente.get("/auth/modelo", headers=headers)
+        assert respuesta.status_code == 200
+        assert respuesta.json() == {"proveedor": "openai", "modelo": None}
+        _assert_sin_claves(respuesta)
+
+        monkeypatch.setenv("OPENAI_MODEL", "   ")
+        vacio = cliente.get("/auth/modelo", headers=headers)
+        assert vacio.status_code == 200
+        assert vacio.json() == {"proveedor": "openai", "modelo": None}
+
+        monkeypatch.setenv("LLM_PROVIDER", "gemini")
+        monkeypatch.delenv("GEMINI_MODEL", raising=False)
+        monkeypatch.setenv("OPENAI_MODEL", "gpt-presente")
+        gemini = cliente.get("/auth/modelo", headers=headers)
+        assert gemini.status_code == 200
+        assert gemini.json() == {"proveedor": "gemini", "modelo": None}
+        _assert_sin_claves(gemini)

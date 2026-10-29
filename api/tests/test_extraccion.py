@@ -130,6 +130,8 @@ def _elegir_repo():
 REPO, REPO_REAL = _elegir_repo()
 
 from app.auth import usuario_actual
+from app.cargas import leer as leer_carga
+from app.cargas import procesar_carga
 from app.extraccion import (
     LecturaFactura,
     detectar_tipo,
@@ -139,6 +141,7 @@ from app.extraccion import (
 )
 from app.ingesta import TAMANO_MAXIMO_BYTES
 from app.rutas_documentos import router
+from tests.redis_memoria import RedisMemoria
 
 
 class Doble:
@@ -259,6 +262,7 @@ def _urls(mensajes) -> list[str]:
 def cliente_de(user_id: str, email: str) -> TestClient:
     aplicacion = FastAPI()
     aplicacion.include_router(router)
+    aplicacion.state.redis = RedisMemoria()
     aplicacion.dependency_overrides[usuario_actual] = lambda: {
         "user_id": user_id,
         "email": email,
@@ -271,6 +275,24 @@ def subir(cliente: TestClient, datos: bytes, nombre: str, content_type: str = "a
         "/documentos",
         files={"archivo": (nombre, datos, content_type)},
     )
+
+
+def correr(cliente: TestClient, respuesta):
+    """El POST solo encola. El worker es el que lee el comprobante."""
+    assert respuesta.status_code == 202, respuesta.text
+    job_id = respuesta.json()["job_id"]
+    asyncio.run(procesar_carga(cliente.app.state.redis, job_id))
+    job = asyncio.run(leer_carga(cliente.app.state.redis, job_id))
+    assert job is not None
+    return job
+
+
+def documento_listo(cliente: TestClient, datos: bytes, nombre: str, content_type: str = "application/octet-stream"):
+    job = correr(cliente, subir(cliente, datos, nombre, content_type))
+    assert job["fase"] == "lista", job
+    detalle = cliente.get(f"/documentos/{job['documento_id']}")
+    assert detalle.status_code == 200, detalle.text
+    return detalle.json()
 
 
 def libro(user_id: str) -> dict | list:
@@ -380,8 +402,12 @@ def test_pdf_con_texto_no_usa_la_transcripcion(cuentas, doble, caplog):
     caplog.set_level(logging.INFO, logger="app.extraccion")
     with cliente_de(cuentas["ada"], "ada@example.com") as ada:
         respuesta = subir(ada, pdf_con_frase(), "foto.jpg", "image/jpeg")
-        assert respuesta.status_code == 201
-        cuerpo = respuesta.json()
+        assert respuesta.status_code == 202
+        assert respuesta.json()["status"] == "PENDING"
+        assert doble.mensajes is None
+        job = correr(ada, respuesta)
+        assert job["fase"] == "lista"
+        cuerpo = ada.get(f"/documentos/{job['documento_id']}").json()
         assert cuerpo["estado"] == "borrador"
         assert "18500.50" in cuerpo["texto"]
         assert "Edenor" in cuerpo["texto"]
@@ -401,14 +427,18 @@ def test_pdf_con_texto_no_usa_la_transcripcion(cuentas, doble, caplog):
             {"id": cuerpo["id"], "estado": "borrador", "campos": cuerpo["campos"]}
         ]
         assert "texto" not in lista.json()["items"][0]
+        if REPO_REAL:
+            avisos = asyncio.run(REPO.listar_notificaciones(user_id=cuentas["ada"]))
+            assert avisos["no_leidas"] == 1
+            assert avisos["items"][0]["accion"]["etiqueta"] == "Revisar"
+            assert avisos["items"][0]["accion"]["ruta"] == f"/documentos/{cuerpo['id']}"
 
 
 def test_pdf_de_tres_paginas_manda_dos_imagenes(cuentas, doble):
     doble.lectura = lectura_completa(transcripcion="ajuste anual del alquiler")
     with cliente_de(cuentas["ada"], "ada@example.com") as ada:
-        respuesta = subir(ada, pdf_sin_texto(3), "escaneo.pdf", "application/pdf")
-    assert respuesta.status_code == 201
-    assert respuesta.json()["texto"] == "ajuste anual del alquiler"
+        cuerpo = documento_listo(ada, pdf_sin_texto(3), "escaneo.pdf", "application/pdf")
+    assert cuerpo["texto"] == "ajuste anual del alquiler"
     urls = _urls(doble.mensajes)
     assert len(urls) == 2
     assert all(url.startswith("data:image/png;base64,") for url in urls)
@@ -418,14 +448,12 @@ def test_pdf_de_tres_paginas_manda_dos_imagenes(cuentas, doble):
 def test_webp_y_jpeg_van_por_vision(cuentas, doble):
     doble.lectura = lectura_completa(transcripcion="foto del comprobante")
     with cliente_de(cuentas["ada"], "ada@example.com") as ada:
-        webp = subir(ada, WEBP, "nota.pdf", "application/pdf")
-        assert webp.status_code == 201
-        assert webp.json()["texto"] == "foto del comprobante"
+        webp = documento_listo(ada, WEBP, "nota.pdf", "application/pdf")
+        assert webp["texto"] == "foto del comprobante"
         assert _urls(doble.mensajes) == [
             "data:image/webp;base64," + base64.b64encode(WEBP).decode("ascii")
         ]
-        jpeg = subir(ada, jpeg_minimo(), "comprobante.png", "image/png")
-    assert jpeg.status_code == 201
+        documento_listo(ada, jpeg_minimo(), "comprobante.png", "image/png")
     assert _urls(doble.mensajes)[0].startswith("data:image/jpeg;base64,")
 
 
@@ -437,23 +465,21 @@ def test_lectura_desprolija_se_normaliza_y_lo_invalido_se_advierte(cuentas, dobl
         transcripcion=MARCA_VISION,
     )
     with cliente_de(cuentas["ada"], "ada@example.com") as ada:
-        bien = subir(ada, pdf_con_frase(), "a.pdf")
-    assert bien.status_code == 201
-    campos = bien.json()["campos"]
+        bien = documento_listo(ada, pdf_con_frase(), "a.pdf")
+    campos = bien["campos"]
     assert campos["categoria"] == "servicios"
     assert campos["periodo"] == "2026-03"
     assert campos["monto"] == "18500.50"
     assert "vencimiento" not in campos
-    assert bien.json()["advertencias"] == []
+    assert bien["advertencias"] == []
 
     doble.lectura = lectura_completa(monto="18500.505", categoria="luz", proveedor="")
     with cliente_de(cuentas["ada"], "ada@example.com") as ada:
-        mal = subir(ada, pdf_con_frase(), "b.pdf")
-    assert mal.status_code == 201
-    assert "monto" not in mal.json()["campos"]
-    assert "categoria" not in mal.json()["campos"]
-    assert "proveedor" not in mal.json()["campos"]
-    texto = " ".join(mal.json()["advertencias"])
+        mal = documento_listo(ada, pdf_con_frase(), "b.pdf")
+    assert "monto" not in mal["campos"]
+    assert "categoria" not in mal["campos"]
+    assert "proveedor" not in mal["campos"]
+    texto = " ".join(mal["advertencias"])
     assert "monto" in texto
     assert "categoría" in texto
     assert "proveedor" in texto
@@ -464,14 +490,17 @@ def test_tipo_invalido_truncado_vacio_y_de_mas_no_llaman_al_modelo(cuentas, dobl
         gif = subir(ada, b"GIF89a" + b"\x00" * 16, "foto.pdf", "application/pdf")
         assert gif.status_code == 415
         assert gif.json()["detail"] == "El archivo no es jpeg, png, webp ni pdf."
-        webp_roto = subir(ada, WEBP[:20], "a.webp")
-        assert webp_roto.status_code == 415
-        jpeg_roto = subir(ada, b"\xff\xd8\xff\x00\x11", "a.jpg")
-        assert jpeg_roto.status_code == 415
-        pdf_roto = subir(ada, b"%PDF-1.4 esto no es un pdf", "a.pdf")
-        assert pdf_roto.status_code == 422
-        assert pdf_roto.json()["detail"] == "No se pudo abrir el PDF."
-        assert "Traceback" not in pdf_roto.text
+        for datos, nombre, detalle in (
+            (WEBP[:20], "a.webp", "El archivo no es jpeg, png, webp ni pdf."),
+            (b"\xff\xd8\xff\x00\x11", "a.jpg", "El archivo no es jpeg, png, webp ni pdf."),
+            (b"%PDF-1.4 esto no es un pdf", "a.pdf", "No se pudo abrir el PDF."),
+        ):
+            aceptado = subir(ada, datos, nombre)
+            assert aceptado.status_code == 202
+            assert "Traceback" not in aceptado.text
+            job = correr(ada, aceptado)
+            assert job["fase"] == "falla"
+            assert job["mensaje"] == detalle
         vacio = subir(ada, b"", "vacio.pdf")
         assert vacio.status_code == 422
         assert vacio.json()["detail"] == "Falta el archivo."
@@ -507,7 +536,7 @@ def test_tipo_invalido_truncado_vacio_y_de_mas_no_llaman_al_modelo(cuentas, dobl
     assert doble.mensajes is None
 
 
-def test_fallo_de_modelo_es_502_sin_fuga(cuentas, monkeypatch, caplog):
+def test_fallo_de_modelo_falla_la_carga_sin_fuga(cuentas, monkeypatch, caplog):
     caplog.set_level(logging.INFO, logger="app.extraccion")
     monkeypatch.setattr(
         "app.extraccion.armar_llm",
@@ -515,11 +544,14 @@ def test_fallo_de_modelo_es_502_sin_fuga(cuentas, monkeypatch, caplog):
     )
     with cliente_de(cuentas["ada"], "ada@example.com") as ada:
         respuesta = subir(ada, pdf_con_frase(), "a.pdf")
-        assert respuesta.status_code == 502
-        assert respuesta.json() == {"detail": "No se pudo leer el comprobante."}
+        assert respuesta.status_code == 202
         assert "Traceback" not in respuesta.text
         assert "sk-secret" not in respuesta.text
-        assert FRASE not in respuesta.text
+        job = correr(ada, respuesta)
+        assert job["fase"] == "falla"
+        assert job["mensaje"] == "No se pudo leer el comprobante."
+        assert "sk-secret" not in str(job)
+        assert FRASE not in str(job)
         assert ada.get("/documentos").json()["items"] == []
     assert "extracción falló: RuntimeError" in caplog.text
     assert "sk-secret" not in caplog.text
@@ -547,9 +579,7 @@ def test_confirmar_indexa_y_recien_ahi_entra_al_libro(cuentas, doble, monkeypatc
     modulo.indexar_comprobante = indexar_comprobante
     monkeypatch.setitem(sys.modules, "app.indexacion", modulo)
     with cliente_de(cuentas["ada"], "ada@example.com") as ada:
-        creado = subir(ada, pdf_con_frase(), "a.pdf")
-        assert creado.status_code == 201
-        documento_id = creado.json()["id"]
+        documento_id = documento_listo(ada, pdf_con_frase(), "a.pdf")["id"]
         assert_libro_vacio(cuentas["ada"])
         intruso = ada.post(
             f"/documentos/{documento_id}/confirmar",
@@ -584,7 +614,7 @@ def test_confirmar_indexa_y_recien_ahi_entra_al_libro(cuentas, doble, monkeypatc
 def test_sin_indexacion_la_confirmacion_igual_persiste(cuentas, monkeypatch):
     monkeypatch.setitem(sys.modules, "app.indexacion", None)
     with cliente_de(cuentas["ada"], "ada@example.com") as ada:
-        documento_id = subir(ada, pdf_con_frase(), "a.pdf").json()["id"]
+        documento_id = documento_listo(ada, pdf_con_frase(), "a.pdf")["id"]
         respuesta = ada.post(f"/documentos/{documento_id}/confirmar", json=FACTURA)
         assert respuesta.status_code == 200
         assert respuesta.json()["estado"] == "confirmado"
@@ -608,7 +638,7 @@ def test_indexar_que_falla_deja_el_borrador(cuentas, caplog, monkeypatch):
     modulo.indexar_comprobante = indexar_comprobante
     monkeypatch.setitem(sys.modules, "app.indexacion", modulo)
     with cliente_de(cuentas["ada"], "ada@example.com") as ada:
-        documento_id = subir(ada, pdf_con_frase(), "a.pdf").json()["id"]
+        documento_id = documento_listo(ada, pdf_con_frase(), "a.pdf")["id"]
         respuesta = ada.post(f"/documentos/{documento_id}/confirmar", json=FACTURA)
         assert respuesta.status_code == 200
         cuerpo = respuesta.json()
@@ -635,7 +665,7 @@ def test_documento_ajeno_es_404_y_confirmar_incompleto_422(cuentas, doble):
         cliente_de(cuentas["ada"], "ada@example.com") as ada,
         cliente_de(cuentas["grace"], "grace@example.com") as grace,
     ):
-        documento_id = subir(ada, pdf_con_frase(), "a.pdf").json()["id"]
+        documento_id = documento_listo(ada, pdf_con_frase(), "a.pdf")["id"]
         ajeno = grace.get(f"/documentos/{documento_id}")
         assert ajeno.status_code == 404
         assert ajeno.json()["detail"] == "No existe ese documento."
@@ -683,8 +713,11 @@ def test_openapi_muestra_el_contrato():
     assert "post" in rutas["/documentos/{id}/anular"]
     assert "post" in rutas["/documentos/{id}/corregir"]
     assert "get" in rutas["/export"]
-    assert "201" in rutas["/documentos"]["post"]["responses"]
+    assert "202" in rutas["/documentos"]["post"]["responses"]
+    assert "get" in rutas["/cargas/{job_id}"]
     nombres = esquema["components"]["schemas"]
+    assert "CargaAceptada" in nombres
+    assert "CargaEstado" in nombres
     assert "Factura" in nombres
     assert "DocumentoBorrador" in nombres
     assert "DocumentoConfirmado" in nombres
@@ -703,7 +736,7 @@ def test_descarte_ajeno_es_404(cuentas, monkeypatch):
         cliente_de(cuentas["ada"], "ada@example.com") as ada,
         cliente_de(cuentas["grace"], "grace@example.com") as grace,
     ):
-        documento_id = subir(ada, pdf, "a.pdf").json()["id"]
+        documento_id = documento_listo(ada, pdf, "a.pdf")["id"]
         assert grace.delete(f"/documentos/{documento_id}").status_code == 404
         assert grace.get(f"/documentos/{documento_id}/archivo").status_code == 404
         archivo = ada.get(f"/documentos/{documento_id}/archivo")
@@ -715,12 +748,135 @@ def test_descarte_ajeno_es_404(cuentas, monkeypatch):
         assert ada.get(f"/documentos/{documento_id}").status_code == 404
         assert ada.get(f"/documentos/{documento_id}/archivo").status_code == 404
 
-        confirmado = subir(ada, pdf, "b.pdf").json()["id"]
+        confirmado = documento_listo(ada, pdf, "b.pdf")["id"]
         assert ada.post(f"/documentos/{confirmado}/confirmar", json=FACTURA).status_code == 200
-        assert ada.delete(f"/documentos/{confirmado}").status_code == 404
+        assert grace.delete(f"/documentos/{confirmado}").status_code == 404
         sigue = ada.get(f"/documentos/{confirmado}/archivo")
         assert sigue.status_code == 200
         assert sigue.content == pdf
+        assert ada.delete(f"/documentos/{confirmado}").status_code == 204
+        assert ada.get(f"/documentos/{confirmado}").status_code == 404
+        assert ada.get(f"/documentos/{confirmado}/archivo").status_code == 404
+        assert ada.delete(f"/documentos/{confirmado}").status_code == 404
+
+
+def test_eliminar_confirmado_saca_libro_archivo_e_indice(cuentas, monkeypatch, tmp_path):
+    _sin_indice(monkeypatch)
+    from app import rag
+
+    indice_anterior = rag.INDICE_LOCAL
+    docs_anteriores = rag._documentos
+    store_anterior = rag._store_pinecone
+    pinecone_anterior = rag._usar_pinecone
+    rag.preparar_indice_local(tmp_path / "comprobantes.jsonl")
+    rag._usar_pinecone = False
+    borrados: list[dict] = []
+
+    class _Store:
+        def delete(self, *, filter, namespace):
+            borrados.append({"filter": filter, "namespace": namespace})
+
+    rag._store_pinecone = lambda: _Store()
+    pdf = pdf_con_frase()
+    try:
+        with (
+            cliente_de(cuentas["ada"], "ada@example.com") as ada,
+            cliente_de(cuentas["grace"], "grace@example.com") as grace,
+        ):
+            propio = documento_listo(ada, pdf, "a.pdf")["id"]
+            assert ada.post(f"/documentos/{propio}/confirmar", json=FACTURA).status_code == 200
+            otro = documento_listo(ada, pdf, "b.pdf")["id"]
+            assert (
+                ada.post(
+                    f"/documentos/{otro}/confirmar",
+                    json={**FACTURA, "proveedor": "Metrogas", "monto": "10.00"},
+                ).status_code
+                == 200
+            )
+            ajeno = documento_listo(grace, pdf, "c.pdf")["id"]
+            assert (
+                grace.post(
+                    f"/documentos/{ajeno}/confirmar",
+                    json={**FACTURA, "proveedor": "Aysa", "monto": "3.00"},
+                ).status_code
+                == 200
+            )
+            anulado = documento_listo(ada, pdf, "d.pdf")["id"]
+            assert (
+                ada.post(
+                    f"/documentos/{anulado}/confirmar",
+                    json={**FACTURA, "proveedor": "Edesur", "monto": "4.00"},
+                ).status_code
+                == 200
+            )
+            assert ada.post(f"/documentos/{anulado}/anular").status_code == 200
+            rag.indexar_sync(
+                user_id=cuentas["ada"],
+                documento_id=propio,
+                texto="Factura Edenor de luz con ajuste secreto",
+                categoria="servicios",
+                periodo="2026-03",
+                proveedor="Edenor",
+            )
+            rag.indexar_sync(
+                user_id=cuentas["grace"],
+                documento_id=ajeno,
+                texto="Secreto de grace sobre el alquiler",
+                categoria="servicios",
+                periodo="2026-03",
+                proveedor="Aysa",
+            )
+
+            assert grace.delete(f"/documentos/{propio}").status_code == 404
+            assert ada.get(f"/documentos/{propio}/archivo").content == pdf
+            assert ada.delete(f"/documentos/{propio}").status_code == 204
+            assert ada.delete(f"/documentos/{anulado}").status_code == 204
+            assert ada.get(f"/documentos/{propio}").status_code == 404
+            assert ada.get(f"/documentos/{propio}/archivo").status_code == 404
+            assert ada.get(f"/documentos/{anulado}").status_code == 404
+            archivo_ajeno = grace.get(f"/documentos/{ajeno}/archivo")
+            assert archivo_ajeno.status_code == 200
+            assert archivo_ajeno.content == pdf
+            lista = [item["id"] for item in ada.get("/documentos").json()["items"]]
+            assert propio not in lista
+            assert anulado not in lista
+            assert otro in lista
+            assert ajeno not in lista
+            exportado = ada.get("/export", params={"desde": "2026-01", "hasta": "2026-12"})
+            assert exportado.status_code == 200
+            texto = exportado.content.decode("utf-8")
+            assert "Metrogas" in texto
+            assert otro in texto
+            assert "Edenor" not in texto
+            assert "Edesur" not in texto
+            assert propio not in texto
+
+        if REPO_REAL:
+            datos = libro(cuentas["ada"])
+            ids = [item["id"] for item in datos["comprobantes"]]
+            assert ids == [otro]
+            gastos = asyncio.run(REPO.consultar_gastos(user_id=cuentas["ada"]))
+            assert gastos["cantidad"] == 1
+            assert [item["id"] for item in libro(cuentas["grace"])["comprobantes"]] == [ajeno]
+
+        assert rag.buscar_sync(consulta="ajuste secreto", user_id=cuentas["ada"]) == []
+        de_grace = rag.buscar_sync(consulta="Secreto alquiler", user_id=cuentas["grace"])
+        assert [item["documento_id"] for item in de_grace] == [ajeno]
+        assert borrados == [
+            {
+                "filter": {"user_id": cuentas["ada"], "documento_id": propio},
+                "namespace": rag.NAMESPACE,
+            },
+            {
+                "filter": {"user_id": cuentas["ada"], "documento_id": anulado},
+                "namespace": rag.NAMESPACE,
+            },
+        ]
+    finally:
+        rag.INDICE_LOCAL = indice_anterior
+        rag._documentos = docs_anteriores
+        rag._store_pinecone = store_anterior
+        rag._usar_pinecone = pinecone_anterior
 
 
 def test_anulado_queda_fuera_del_resumen(cuentas, monkeypatch):
@@ -729,10 +885,10 @@ def test_anulado_queda_fuera_del_resumen(cuentas, monkeypatch):
         cliente_de(cuentas["ada"], "ada@example.com") as ada,
         cliente_de(cuentas["grace"], "grace@example.com") as grace,
     ):
-        documento_id = subir(ada, pdf_con_frase(), "a.pdf").json()["id"]
+        documento_id = documento_listo(ada, pdf_con_frase(), "a.pdf")["id"]
         assert ada.post(f"/documentos/{documento_id}/confirmar", json=FACTURA).status_code == 200
         assert grace.post(f"/documentos/{documento_id}/anular").status_code == 404
-        borrador = subir(ada, pdf_con_frase(), "b.pdf").json()["id"]
+        borrador = documento_listo(ada, pdf_con_frase(), "b.pdf")["id"]
         assert ada.post(f"/documentos/{borrador}/anular").status_code == 404
         anulado = ada.post(f"/documentos/{documento_id}/anular")
         assert anulado.status_code == 200
@@ -751,9 +907,9 @@ def test_anulado_queda_fuera_del_resumen(cuentas, monkeypatch):
 def test_export_incluye_el_proveedor(cuentas, monkeypatch):
     _sin_indice(monkeypatch)
     with cliente_de(cuentas["ada"], "ada@example.com") as ada:
-        primero = subir(ada, pdf_con_frase(), "a.pdf").json()["id"]
+        primero = documento_listo(ada, pdf_con_frase(), "a.pdf")["id"]
         assert ada.post(f"/documentos/{primero}/confirmar", json=FACTURA).status_code == 200
-        segundo = subir(ada, pdf_con_frase(), "b.pdf").json()["id"]
+        segundo = documento_listo(ada, pdf_con_frase(), "b.pdf")["id"]
         assert (
             ada.post(
                 f"/documentos/{segundo}/confirmar",
@@ -783,7 +939,7 @@ def test_corregir_suma_el_cambio_y_el_borrador_es_404(cuentas, monkeypatch):
         cliente_de(cuentas["ada"], "ada@example.com") as ada,
         cliente_de(cuentas["grace"], "grace@example.com") as grace,
     ):
-        documento_id = subir(ada, pdf_con_frase(), "a.pdf").json()["id"]
+        documento_id = documento_listo(ada, pdf_con_frase(), "a.pdf")["id"]
         assert ada.post(f"/documentos/{documento_id}/corregir", json=FACTURA).status_code == 404
         assert ada.post(f"/documentos/{documento_id}/confirmar", json=FACTURA).status_code == 200
         assert grace.post(
@@ -806,6 +962,8 @@ class _RedisCuenta:
     def __init__(self) -> None:
         self.valores: dict[str, int] = {}
         self.expira: dict[str, int] = {}
+        self.datos: dict[str, str] = {}
+        self.listas: dict[str, list] = {}
 
     async def incr(self, clave: str) -> int:
         self.valores[clave] = self.valores.get(clave, 0) + 1
@@ -814,6 +972,25 @@ class _RedisCuenta:
     async def expire(self, clave: str, segundos: int) -> bool:
         self.expira[clave] = segundos
         return True
+
+    async def set(self, nombre: str, valor: str, nx: bool = False, ex: int | None = None):
+        if nx and nombre in self.datos:
+            return None
+        self.datos[nombre] = valor
+        return True
+
+    async def get(self, nombre: str):
+        return self.datos.get(nombre)
+
+    async def rpush(self, nombre: str, valor: str) -> int:
+        self.listas.setdefault(nombre, []).append(valor)
+        return len(self.listas[nombre])
+
+    async def publish(self, canal: str, mensaje: str) -> int:
+        return 1
+
+    async def delete(self, *nombres: str) -> int:
+        return 0
 
 
 def _cliente_con_redis(user_id: str, email: str, redis):
@@ -836,7 +1013,9 @@ def test_tope_de_cargas_responde_429(cuentas, doble, monkeypatch):
     doble.ainvoke = contar
     redis = _RedisCuenta()
     with _cliente_con_redis(cuentas["ada"], "ada@example.com", redis) as ada:
-        assert subir(ada, pdf_con_frase(), "a.pdf").status_code == 201
+        primero = subir(ada, pdf_con_frase(), "a.pdf")
+        assert primero.status_code == 202
+        assert correr(ada, primero)["fase"] == "lista"
         segundo = subir(ada, pdf_con_frase(), "b.pdf")
         assert segundo.status_code == 429
         assert segundo.json()["detail"] == "Llegaste al tope de cargas de hoy."
@@ -847,13 +1026,13 @@ def test_tope_de_cargas_responde_429(cuentas, doble, monkeypatch):
 def test_si_redis_no_cuenta_la_carga_sigue(cuentas, caplog):
     caplog.set_level(logging.WARNING, logger="app.cupo")
 
-    class Roto:
+    class Roto(_RedisCuenta):
         async def incr(self, clave):
             raise RuntimeError("sk-secret")
 
     with _cliente_con_redis(cuentas["ada"], "ada@example.com", Roto()) as ada:
         respuesta = subir(ada, pdf_con_frase(), "a.pdf")
-        assert respuesta.status_code == 201
+        assert respuesta.status_code == 202
         assert "sk-secret" not in respuesta.text
     assert "sk-secret" not in caplog.text
     assert "RuntimeError" in caplog.text

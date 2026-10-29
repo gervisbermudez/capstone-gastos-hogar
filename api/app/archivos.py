@@ -80,6 +80,50 @@ async def borrar_archivo(user_id: str, documento_id: str) -> None:
     await asyncio.to_thread(_borrar)
 
 
+def ruta_de_pendiente(user_id: str, job_id: str) -> Path:
+    base = directorio_archivos().resolve()
+    destino = (base / _segmento(user_id) / "pendientes" / _segmento(job_id)).resolve()
+    if not destino.is_relative_to(base):
+        raise ValueError("id inválido")
+    return destino
+
+
+async def guardar_pendiente(*, user_id: str, job_id: str, datos: bytes) -> None:
+    ruta = ruta_de_pendiente(user_id, job_id)
+
+    def _escribir() -> None:
+        ruta.parent.mkdir(parents=True, exist_ok=True)
+        ruta.write_bytes(datos)
+
+    await asyncio.to_thread(_escribir)
+
+
+async def leer_pendiente(user_id: str, job_id: str) -> bytes | None:
+    try:
+        ruta = ruta_de_pendiente(user_id, job_id)
+    except ValueError:
+        return None
+
+    def _leer() -> bytes | None:
+        if not ruta.is_file():
+            return None
+        return ruta.read_bytes()
+
+    return await asyncio.to_thread(_leer)
+
+
+async def borrar_pendiente(user_id: str, job_id: str) -> None:
+    try:
+        ruta = ruta_de_pendiente(user_id, job_id)
+    except ValueError:
+        return
+
+    def _borrar() -> None:
+        ruta.unlink(missing_ok=True)
+
+    await asyncio.to_thread(_borrar)
+
+
 async def borrar_directorio_usuario(user_id: str) -> None:
     """Borra ``archivos/{user_id}`` si es un directorio hijo de la base."""
     base = directorio_archivos().resolve()

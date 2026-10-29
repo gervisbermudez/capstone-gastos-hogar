@@ -13,7 +13,8 @@ _ESQUEMA = """
 CREATE TABLE IF NOT EXISTS usuarios (
     user_id TEXT PRIMARY KEY,
     email TEXT NOT NULL UNIQUE COLLATE NOCASE,
-    password_hash TEXT NOT NULL
+    password_hash TEXT NOT NULL,
+    nombre TEXT
 );
 
 CREATE TABLE IF NOT EXISTS borradores (
@@ -61,6 +62,13 @@ CREATE TABLE IF NOT EXISTS mensajes (
 CREATE INDEX IF NOT EXISTS ix_mensajes_user_hilo
     ON mensajes(user_id, thread_id, id);
 
+CREATE TABLE IF NOT EXISTS hilos_estado (
+    user_id TEXT NOT NULL REFERENCES usuarios(user_id),
+    thread_id TEXT NOT NULL,
+    estado TEXT NOT NULL CHECK (estado IN ('archivado', 'eliminado')),
+    PRIMARY KEY (user_id, thread_id)
+);
+
 CREATE TABLE IF NOT EXISTS categorias (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES usuarios(user_id),
@@ -71,6 +79,26 @@ CREATE TABLE IF NOT EXISTS categorias (
 
 CREATE UNIQUE INDEX IF NOT EXISTS ux_categorias_user_nombre
     ON categorias(user_id, nombre COLLATE NOCASE);
+
+CREATE TABLE IF NOT EXISTS notificaciones (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES usuarios(user_id),
+    tipo TEXT NOT NULL,
+    titulo TEXT NOT NULL,
+    cuerpo TEXT NOT NULL,
+    accion_etiqueta TEXT,
+    accion_ruta TEXT,
+    recurso_clase TEXT,
+    recurso_id TEXT,
+    dedupe TEXT,
+    leida_en TEXT,
+    creada_en TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS ix_notificaciones_user_fecha
+    ON notificaciones(user_id, creada_en DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_notificaciones_dedupe
+    ON notificaciones(dedupe);
 """
 
 # Columnas nuevas: nullable o con default, para que los INSERT viejos sigan.
@@ -93,6 +121,12 @@ async def _migrar(conn: aiosqlite.Connection) -> None:
         await conn.execute(f"ALTER TABLE comprobantes ADD COLUMN {nombre} {definicion}")
     if "vencimiento" in existentes:
         await conn.execute("ALTER TABLE comprobantes DROP COLUMN vencimiento")
+    # Una base nueva ya trae ``nombre`` en el CREATE TABLE. El ALTER es solo para las viejas.
+    cursor = await conn.execute("PRAGMA table_info(usuarios)")
+    filas = await cursor.fetchall()
+    columnas_usuario = {fila["name"] for fila in filas}
+    if "nombre" not in columnas_usuario:
+        await conn.execute("ALTER TABLE usuarios ADD COLUMN nombre TEXT")
 
 
 def ruta_base() -> Path:

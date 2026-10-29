@@ -12,7 +12,7 @@ import {
   YAxis,
 } from "recharts"
 import type { TooltipPayloadEntry } from "recharts"
-import { ETIQUETA_CATEGORIA, type Categoria, type TotalCategoria, type TotalMes } from "../api/tipos"
+import { etiquetaCategoria, esCategoriaFija, type Categoria, type TotalCategoria, type TotalMes } from "../api/tipos"
 import { formatMonto } from "../formato"
 import { useTema } from "../temaModo"
 
@@ -64,6 +64,14 @@ type Punto = {
   valor: number
   color: string
   dibuja: boolean
+}
+
+const PALETA_EXTRA = ["#c4a15a", "#7d9a86", "#8d8474", "#b08968", "#6b705c"]
+
+function colorCategoria(categoria: string, indice: number, fijos: Record<Categoria, string>): string {
+  const clave = categoria.trim().toLowerCase()
+  if (esCategoriaFija(clave)) return fijos[clave]
+  return PALETA_EXTRA[indice % PALETA_EXTRA.length]
 }
 
 function escala(total: string): number | null {
@@ -222,10 +230,10 @@ export function GraficoCategorias({ porCategoria }: { porCategoria: TotalCategor
     const valor = escala(item.total)
     return {
       clave: `${item.categoria}-${indice}`,
-      nombre: ETIQUETA_CATEGORIA[item.categoria],
+      nombre: etiquetaCategoria(item.categoria),
       total: item.total,
       valor: valor ?? 0,
-      color: colores.categoria[item.categoria],
+      color: colorCategoria(item.categoria, indice, colores.categoria),
       dibuja: valor !== null,
     }
   })

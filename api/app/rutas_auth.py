@@ -16,13 +16,16 @@ from .cache_resumen import guardar, invalidar, leer
 from .esquemas import (
     BajaCuenta,
     CambioEmail,
+    CambioNombre,
     CambioPassword,
     Credenciales,
+    ModeloActivo,
     RangoResumen,
     Resumen,
     Token,
     UsuarioActual,
 )
+from .llm import describir_modelo
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +78,30 @@ async def login(body: Credenciales) -> Token:
 
 @router.get("/auth/me", response_model=UsuarioActual)
 async def me(usuario: Annotated[dict, Depends(usuario_actual)]) -> UsuarioActual:
-    return UsuarioActual(user_id=usuario["user_id"], email=usuario["email"])
+    return UsuarioActual(
+        user_id=usuario["user_id"],
+        email=usuario["email"],
+        nombre=usuario["nombre"],
+    )
+
+
+@router.get("/auth/modelo", response_model=ModeloActivo)
+async def ver_modelo(_usuario: Annotated[dict, Depends(usuario_actual)]) -> ModeloActivo:
+    datos = describir_modelo()
+    return ModeloActivo(proveedor=datos["proveedor"], modelo=datos["modelo"])
+
+
+@router.post("/auth/nombre", response_model=UsuarioActual)
+async def cambiar_nombre(
+    body: CambioNombre,
+    usuario: Annotated[dict, Depends(usuario_actual)],
+) -> UsuarioActual:
+    nombre = await repositorio.actualizar_nombre(user_id=usuario["user_id"], nombre=body.nombre)
+    return UsuarioActual(
+        user_id=usuario["user_id"],
+        email=usuario["email"],
+        nombre=nombre,
+    )
 
 
 @router.post("/auth/email", response_model=UsuarioActual)
@@ -89,7 +115,7 @@ async def cambiar_email(
         correo = await repositorio.actualizar_email(user_id=user_id, email=body.email)
     except repositorio.EmailDuplicado:
         raise HTTPException(status_code=409, detail="Ese email ya está registrado") from None
-    return UsuarioActual(user_id=user_id, email=correo)
+    return UsuarioActual(user_id=user_id, email=correo, nombre=usuario["nombre"])
 
 
 @router.post("/auth/password", status_code=204)

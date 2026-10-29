@@ -4,31 +4,46 @@ import {
   Box,
   Button,
   Card,
+  CloseButton,
+  Dialog,
   EmptyState,
   Field,
   Flex,
   Heading,
   Input,
+  Menu,
+  Portal,
   Skeleton,
   Stack,
   Table,
   Text,
+  Textarea,
 } from "@chakra-ui/react"
 import { ErrorApi, cliente, esAbort } from "../api/cliente"
 import type { CategoriaCatalogo, CategoriaItem } from "../api/tipos"
+import { IconoPuntos } from "../componentes/revision/iconos"
 
 const SOMBRA = "0 12px 40px rgba(28, 27, 23, 0.06)"
 const BORDE = "borde"
 const HOVER_FILA = "rgba(245, 203, 92, 0.45)"
 
-type Pedido = "guardar" | "eliminar"
+const itemMenu = {
+  px: 3,
+  py: 2,
+  mx: 1,
+  borderRadius: "12px",
+  cursor: "pointer",
+  color: "fg",
+  _highlighted: { bg: "bg.subtle" },
+} as const
 
-type Manejadores = {
-  onEditar: (item: CategoriaItem) => void
-  onPedirBaja: (id: string) => void
-  onConfirmarBaja: (id: string) => void
-  onCancelarBaja: () => void
-}
+const itemPeligro = {
+  ...itemMenu,
+  color: "estadoTexto.falla",
+  _highlighted: { bg: "estado.fallaFondo", color: "estado.falla" },
+} as const
+
+type Pedido = "guardar" | "eliminar"
 
 function alertaDe(falla: ErrorApi): string | null {
   const otras = Object.keys(falla.campos).some((clave) => clave !== "nombre" && clave !== "descripcion")
@@ -47,6 +62,10 @@ function catalogoDe(nombre: string, descripcion: string): CategoriaCatalogo {
     nombre: nombre.trim(),
     descripcion: texto === "" ? null : texto,
   }
+}
+
+function fraseConteo(cantidad: number): string {
+  return cantidad === 1 ? "1 categoría" : `${cantidad} categorías`
 }
 
 function Descripcion({ valor }: { valor: string | null }) {
@@ -91,7 +110,7 @@ function AlertaError({
   )
 }
 
-function Encabezado({ children }: { children: string }) {
+function Encabezado({ children }: { children: ReactNode }) {
   return (
     <Table.ColumnHeader
       bg="transparent"
@@ -118,110 +137,76 @@ function Celda({ children }: { children: ReactNode }) {
   )
 }
 
-function Acciones({
+function MenuCategoria({
   item,
-  confirmando,
   bloqueado,
-  eliminando,
   onEditar,
   onPedirBaja,
-  onConfirmarBaja,
-  onCancelarBaja,
-}: Manejadores & {
+}: {
   item: CategoriaItem
-  confirmando: boolean
   bloqueado: boolean
-  eliminando: boolean
+  onEditar: (item: CategoriaItem) => void
+  onPedirBaja: (id: string) => void
 }) {
-  if (confirmando) {
-    return (
-      <Stack gap={2} align="flex-start">
-        <Text fontSize="sm" color="fg.muted">
-          ¿Eliminar esta categoría?
-        </Text>
-        <Flex gap={2} wrap="wrap">
-          <Button
-            type="button"
-            size="sm"
-            borderRadius="full"
-            loading={eliminando}
-            disabled={bloqueado && !eliminando}
-            aria-label={`Confirmar eliminación de ${item.nombre}`}
-            onClick={() => void onConfirmarBaja(item.id)}
-            css={{
-              bg: "fg",
-              color: "fg.sobreSolido",
-              _hover: { bg: "solido.hover", color: "fg.sobreSolido" },
-            }}
-          >
-            Confirmar
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            borderRadius="full"
-            color="fg"
-            disabled={bloqueado}
-            aria-label={`Cancelar eliminación de ${item.nombre}`}
-            onClick={onCancelarBaja}
-          >
-            Cancelar
-          </Button>
-        </Flex>
-      </Stack>
-    )
-  }
-
   return (
-    <Flex gap={2} wrap="wrap">
-      <Button
-        type="button"
-        size="sm"
-        variant="outline"
-        borderRadius="full"
-        color="fg"
-        disabled={bloqueado}
-        aria-label={`Editar ${item.nombre}`}
-        onClick={() => onEditar(item)}
-      >
-        Editar
-      </Button>
-      <Button
-        type="button"
-        size="sm"
-        variant="outline"
-        borderRadius="full"
-        disabled={bloqueado}
-        aria-label={`Eliminar ${item.nombre}`}
-        onClick={() => onPedirBaja(item.id)}
-        css={{
-          color: "estadoTexto.falla",
-          borderColor: "estadoTexto.falla",
-          _hover: { bg: "estado.fallaFondo", color: "estado.falla" },
-        }}
-      >
-        Eliminar
-      </Button>
-    </Flex>
+    <Menu.Root positioning={{ placement: "bottom-end" }}>
+      <Menu.Trigger asChild>
+        <Button
+          type="button"
+          aria-label={`Acciones de ${item.nombre}`}
+          size="sm"
+          variant="ghost"
+          borderRadius="full"
+          flexShrink={0}
+          minW={8}
+          h={8}
+          px={2}
+          color="fg"
+          disabled={bloqueado}
+          _hover={{ bg: "bg.hover", color: "fg" }}
+        >
+          <IconoPuntos />
+        </Button>
+      </Menu.Trigger>
+      <Portal>
+        <Menu.Positioner zIndex={2000}>
+          <Menu.Content
+            bg="bg.panel"
+            borderWidth="1px"
+            borderColor="borde"
+            borderRadius="16px"
+            boxShadow={SOMBRA}
+            minW="11rem"
+            py={1}
+          >
+            <Menu.Item value="editar" onClick={() => onEditar(item)} css={itemMenu}>
+              Editar
+            </Menu.Item>
+            <Menu.Item value="eliminar" onClick={() => onPedirBaja(item.id)} css={itemPeligro}>
+              Eliminar
+            </Menu.Item>
+          </Menu.Content>
+        </Menu.Positioner>
+      </Portal>
+    </Menu.Root>
   )
 }
 
 function TarjetaCategoria({
   item,
-  editando,
-  ...acciones
-}: Manejadores & {
+  bloqueado,
+  onEditar,
+  onPedirBaja,
+}: {
   item: CategoriaItem
-  editando: boolean
-  confirmando: boolean
   bloqueado: boolean
-  eliminando: boolean
+  onEditar: (item: CategoriaItem) => void
+  onPedirBaja: (id: string) => void
 }) {
   return (
     <Card.Root
       size="sm"
-      bg={editando ? "bg.subtle" : "bg.panel"}
+      bg="bg.panel"
       borderWidth="0"
       borderRadius="20px"
       boxShadow={SOMBRA}
@@ -229,11 +214,13 @@ function TarjetaCategoria({
     >
       <Card.Body>
         <Stack gap={3}>
-          <Text fontWeight="medium" color="fg" overflowWrap="anywhere">
-            {item.nombre}
-          </Text>
+          <Flex justify="space-between" gap={3} align="flex-start">
+            <Text minW={0} fontWeight="medium" color="fg" overflowWrap="anywhere">
+              {item.nombre}
+            </Text>
+            <MenuCategoria item={item} bloqueado={bloqueado} onEditar={onEditar} onPedirBaja={onPedirBaja} />
+          </Flex>
           <Descripcion valor={item.descripcion} />
-          <Acciones item={item} {...acciones} />
         </Stack>
       </Card.Body>
     </Card.Root>
@@ -242,17 +229,14 @@ function TarjetaCategoria({
 
 function TablaCategorias({
   items,
-  editandoId,
-  confirmandoId,
   bloqueado,
-  eliminando,
-  ...manejadores
-}: Manejadores & {
+  onEditar,
+  onPedirBaja,
+}: {
   items: CategoriaItem[]
-  editandoId: string | null
-  confirmandoId: string | null
   bloqueado: boolean
-  eliminando: boolean
+  onEditar: (item: CategoriaItem) => void
+  onPedirBaja: (id: string) => void
 }) {
   return (
     <>
@@ -261,11 +245,9 @@ function TablaCategorias({
           <TarjetaCategoria
             key={item.id}
             item={item}
-            editando={editandoId === item.id}
-            confirmando={confirmandoId === item.id}
             bloqueado={bloqueado}
-            eliminando={eliminando && confirmandoId === item.id}
-            {...manejadores}
+            onEditar={onEditar}
+            onPedirBaja={onPedirBaja}
           />
         ))}
       </Stack>
@@ -283,39 +265,34 @@ function TablaCategorias({
               <Table.Row bg="bg.panel">
                 <Encabezado>Nombre</Encabezado>
                 <Encabezado>Descripción</Encabezado>
-                <Encabezado>Acciones</Encabezado>
+                <Encabezado>
+                  <Text as="span" srOnly>
+                    Acciones
+                  </Text>
+                </Encabezado>
               </Table.Row>
             </Table.Header>
             <Table.Body>
-              {items.map((item) => {
-                const editando = editandoId === item.id
-                return (
-                  <Table.Row
-                    key={item.id}
-                    bg={editando ? "bg.subtle" : "bg.panel"}
-                    _hover={{ bg: HOVER_FILA }}
-                    css={{ "&:last-child td": { borderBottomWidth: 0 } }}
-                  >
-                    <Celda>
-                      <Text fontWeight="medium" color="fg" overflowWrap="anywhere">
-                        {item.nombre}
-                      </Text>
-                    </Celda>
-                    <Celda>
-                      <Descripcion valor={item.descripcion} />
-                    </Celda>
-                    <Celda>
-                      <Acciones
-                        item={item}
-                        confirmando={confirmandoId === item.id}
-                        bloqueado={bloqueado}
-                        eliminando={eliminando && confirmandoId === item.id}
-                        {...manejadores}
-                      />
-                    </Celda>
-                  </Table.Row>
-                )
-              })}
+              {items.map((item) => (
+                <Table.Row
+                  key={item.id}
+                  bg="bg.panel"
+                  _hover={{ bg: HOVER_FILA }}
+                  css={{ "&:last-child td": { borderBottomWidth: 0 } }}
+                >
+                  <Celda>
+                    <Text fontWeight="medium" color="fg" overflowWrap="anywhere">
+                      {item.nombre}
+                    </Text>
+                  </Celda>
+                  <Celda>
+                    <Descripcion valor={item.descripcion} />
+                  </Celda>
+                  <Celda>
+                    <MenuCategoria item={item} bloqueado={bloqueado} onEditar={onEditar} onPedirBaja={onPedirBaja} />
+                  </Celda>
+                </Table.Row>
+              ))}
             </Table.Body>
           </Table.Root>
         </Table.ScrollArea>
@@ -324,22 +301,29 @@ function TablaCategorias({
   )
 }
 
+const botonSolido = {
+  bg: "fg",
+  color: "fg.sobreSolido",
+  _hover: { bg: "solido.hover", color: "fg.sobreSolido" },
+} as const
+
 export function Categorias() {
   const [items, setItems] = useState<CategoriaItem[] | null>(null)
   const [cargando, setCargando] = useState(true)
   const [errorLista, setErrorLista] = useState<string | null>(null)
   const [intento, setIntento] = useState(0)
+  const [busqueda, setBusqueda] = useState("")
   const [nombre, setNombre] = useState("")
   const [descripcion, setDescripcion] = useState("")
   const [errorNombre, setErrorNombre] = useState<string | null>(null)
   const [errorDescripcion, setErrorDescripcion] = useState<string | null>(null)
   const [errorAccion, setErrorAccion] = useState<string | null>(null)
   const [editandoId, setEditandoId] = useState<string | null>(null)
-  const [confirmandoId, setConfirmandoId] = useState<string | null>(null)
+  const [formularioAbierto, setFormularioAbierto] = useState(false)
+  const [bajaId, setBajaId] = useState<string | null>(null)
   const [pedido, setPedido] = useState<Pedido | null>(null)
   const vivo = useRef(true)
   const enCurso = useRef(false)
-  const formulario = useRef<HTMLFormElement>(null)
   const nombreInput = useRef<HTMLInputElement>(null)
   const alertaAccion = useRef<HTMLDivElement>(null)
 
@@ -347,14 +331,29 @@ export function Categorias() {
   const botonesBloqueados = ocupado || cargando
   const cargaInicial = cargando && items === null
   const listaVacia = !cargando && errorLista === null && items !== null && items.length === 0
+  const consulta = busqueda.trim().toLocaleLowerCase("es")
+  const visibles =
+    items === null
+      ? []
+      : consulta === ""
+        ? items
+        : items.filter((item) => {
+            const texto = `${item.nombre} ${item.descripcion ?? ""}`.toLocaleLowerCase("es")
+            return texto.includes(consulta)
+          })
+  const enBaja = items?.find((item) => item.id === bajaId) ?? null
 
-  function volverAlta() {
+  function limpiarFormulario() {
     setEditandoId(null)
     setNombre("")
     setDescripcion("")
     setErrorNombre(null)
     setErrorDescripcion(null)
     setErrorAccion(null)
+  }
+
+  function cerrarFormulario() {
+    setFormularioAbierto(false)
   }
 
   function mostrarFalla(falla: unknown, respaldo: string) {
@@ -382,35 +381,43 @@ export function Categorias() {
     setErrorAccion(null)
   }
 
+  function empezarAlta() {
+    if (enCurso.current || cargando) return
+    setBajaId(null)
+    limpiarFormulario()
+    setFormularioAbierto(true)
+  }
+
   function empezarEdicion(item: CategoriaItem) {
     if (enCurso.current || cargando) return
-    setConfirmandoId(null)
+    setBajaId(null)
     setErrorNombre(null)
     setErrorDescripcion(null)
     setErrorAccion(null)
-    if (editandoId !== item.id) {
-      setEditandoId(item.id)
-      setNombre(item.nombre)
-      setDescripcion(item.descripcion ?? "")
-    }
-    formulario.current?.scrollIntoView({ block: "nearest" })
-    nombreInput.current?.focus()
+    setEditandoId(item.id)
+    setNombre(item.nombre)
+    setDescripcion(item.descripcion ?? "")
+    setFormularioAbierto(true)
   }
 
-  function cancelarEdicion() {
-    if (enCurso.current) return
-    volverAlta()
+  function alCambioFormulario(detalle: { open: boolean }) {
+    if (ocupado && !detalle.open) return
+    setFormularioAbierto(detalle.open)
+    if (!detalle.open) limpiarFormulario()
   }
 
   function pedirBaja(id: string) {
     if (enCurso.current || cargando) return
-    setConfirmandoId(id)
     setErrorAccion(null)
+    setBajaId(id)
   }
 
-  function cancelarBaja() {
-    if (enCurso.current) return
-    setConfirmandoId(null)
+  function alCambioBaja(detalle: { open: boolean }) {
+    if (pedido === "eliminar" && !detalle.open) return
+    if (!detalle.open) {
+      setBajaId(null)
+      setErrorAccion(null)
+    }
   }
 
   function reintentar() {
@@ -434,7 +441,7 @@ export function Categorias() {
     const idEnEdicion = editandoId
     enCurso.current = true
     setPedido("guardar")
-    setConfirmandoId(null)
+    setBajaId(null)
     setErrorNombre(null)
     setErrorDescripcion(null)
     setErrorAccion(null)
@@ -453,13 +460,13 @@ export function Categorias() {
           return ordenar(encontrado ? siguientes : [...siguientes, actualizada])
         })
         setErrorLista(null)
-        volverAlta()
+        cerrarFormulario()
       } else {
         const creada = await cliente.crearCategoria(cuerpo)
         if (!vivo.current) return
         setItems((actual) => ordenar(actual ? [...actual, creada] : [creada]))
         setErrorLista(null)
-        volverAlta()
+        cerrarFormulario()
       }
     } catch (falla: unknown) {
       if (!vivo.current) return
@@ -482,9 +489,9 @@ export function Categorias() {
       await cliente.eliminarCategoria(id)
       if (!vivo.current) return
       setItems((actual) => (actual ? actual.filter((item) => item.id !== id) : actual))
-      setConfirmandoId((actual) => (actual === id ? null : actual))
+      setBajaId((actual) => (actual === id ? null : actual))
       setErrorLista(null)
-      if (editabaEsa) volverAlta()
+      if (editabaEsa) cerrarFormulario()
     } catch (falla: unknown) {
       if (!vivo.current) return
       mostrarFalla(falla, "No se pudo eliminar la categoría.")
@@ -505,6 +512,12 @@ export function Categorias() {
     if (!errorAccion) return
     alertaAccion.current?.scrollIntoView({ block: "nearest" })
   }, [errorAccion])
+
+  useEffect(() => {
+    if (!formularioAbierto) return
+    const id = window.setTimeout(() => nombreInput.current?.focus(), 0)
+    return () => window.clearTimeout(id)
+  }, [formularioAbierto, editandoId])
 
   useEffect(() => {
     const ctrl = new AbortController()
@@ -528,102 +541,34 @@ export function Categorias() {
 
   return (
     <Stack gap={{ base: 6, md: 8 }}>
-      <Stack gap={2}>
-        <Heading
-          as="h1"
-          color="fg"
-          fontSize={{ base: "2rem", md: "2.5rem" }}
-          fontWeight="medium"
-          letterSpacing="-0.03em"
-          lineHeight="1.1"
+      <Flex justify="space-between" align={{ base: "stretch", md: "flex-end" }} gap={4} wrap="wrap">
+        <Stack gap={2} flex="1" minW={0}>
+          <Heading
+            as="h1"
+            color="fg"
+            fontSize={{ base: "2rem", md: "2.5rem" }}
+            fontWeight="medium"
+            letterSpacing="-0.03em"
+            lineHeight="1.1"
+          >
+            Categorías
+          </Heading>
+          <Text fontSize="sm" color="fg.muted" maxW="40rem">
+            El listado es el catálogo. El alta y la edición van aparte, y al revisar un gasto podés asignar una de
+            estas categorías.
+          </Text>
+        </Stack>
+        <Button
+          type="button"
+          alignSelf={{ base: "flex-start", md: "flex-end" }}
+          borderRadius="full"
+          disabled={botonesBloqueados}
+          onClick={empezarAlta}
+          css={botonSolido}
         >
-          Categorías
-        </Heading>
-        <Text fontSize="sm" color="fg.muted">
-          Este catálogo no cambia las categorías de los comprobantes. Servicios, Expensas y Alquiler siguen fijas al
-          confirmar.
-        </Text>
-      </Stack>
-
-      <Box
-        bg="bg.panel"
-        borderRadius="20px"
-        boxShadow={SOMBRA}
-        p={{ base: 4, md: 5 }}
-        _dark={{ borderWidth: "1px", borderColor: "borde" }}
-      >
-        <form
-          ref={formulario}
-          noValidate
-          aria-label={editandoId ? "Editar categoría" : "Nueva categoría"}
-          onSubmit={(event) => void alEnviar(event)}
-        >
-          <Stack gap={4}>
-            <Heading as="h2" fontSize="lg" fontWeight="medium" color="fg">
-              {editandoId ? "Editar categoría" : "Nueva categoría"}
-            </Heading>
-            {errorAccion ? (
-              <div ref={alertaAccion}>
-                <AlertaError texto={errorAccion} />
-              </div>
-            ) : null}
-            <Field.Root required invalid={Boolean(errorNombre)} disabled={ocupado}>
-              <Field.Label color="fg">Nombre</Field.Label>
-              <Input
-                ref={nombreInput}
-                name="nombre"
-                autoComplete="off"
-                value={nombre}
-                disabled={ocupado}
-                onChange={(event) => alCambiarNombre(event.target.value)}
-              />
-              {errorNombre ? <Field.ErrorText color="estadoTexto.falla">{errorNombre}</Field.ErrorText> : null}
-            </Field.Root>
-            <Field.Root invalid={Boolean(errorDescripcion)} disabled={ocupado}>
-              <Field.Label color="fg">Descripción</Field.Label>
-              <Input
-                name="descripcion"
-                autoComplete="off"
-                value={descripcion}
-                disabled={ocupado}
-                onChange={(event) => alCambiarDescripcion(event.target.value)}
-              />
-              <Field.HelperText color="fg.muted">Opcional.</Field.HelperText>
-              {errorDescripcion ? (
-                <Field.ErrorText color="estadoTexto.falla">{errorDescripcion}</Field.ErrorText>
-              ) : null}
-            </Field.Root>
-            <Flex gap={3} wrap="wrap">
-              <Button
-                type="submit"
-                borderRadius="full"
-                loading={pedido === "guardar"}
-                disabled={botonesBloqueados && pedido !== "guardar"}
-                css={{
-                  bg: "fg",
-                  color: "fg.sobreSolido",
-                  _hover: { bg: "solido.hover", color: "fg.sobreSolido" },
-                }}
-              >
-                {editandoId ? "Guardar" : "Agregar"}
-              </Button>
-              {editandoId ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  borderRadius="full"
-                  color="fg"
-                  disabled={botonesBloqueados}
-                  aria-label="Cancelar edición"
-                  onClick={cancelarEdicion}
-                >
-                  Cancelar
-                </Button>
-              ) : null}
-            </Flex>
-          </Stack>
-        </form>
-      </Box>
+          Nueva categoría
+        </Button>
+      </Flex>
 
       {errorLista !== null ? (
         <AlertaError texto={errorLista} onReintentar={reintentar} reintentoBloqueado={botonesBloqueados} />
@@ -635,24 +580,212 @@ export function Categorias() {
         <EmptyState.Root>
           <EmptyState.Content>
             <EmptyState.Title>Todavía no hay categorías</EmptyState.Title>
-            <EmptyState.Description>Agregá la primera con el formulario.</EmptyState.Description>
+            <EmptyState.Description>Creá la primera para asignarla a un gasto.</EmptyState.Description>
           </EmptyState.Content>
         </EmptyState.Root>
       ) : null}
 
       {items !== null && items.length > 0 ? (
-        <TablaCategorias
-          items={items}
-          editandoId={editandoId}
-          confirmandoId={confirmandoId}
-          bloqueado={botonesBloqueados}
-          eliminando={pedido === "eliminar"}
-          onEditar={empezarEdicion}
-          onPedirBaja={pedirBaja}
-          onConfirmarBaja={(id) => void confirmarBaja(id)}
-          onCancelarBaja={cancelarBaja}
-        />
+        <Stack gap={4}>
+          <Flex justify="space-between" align="baseline" gap={3} wrap="wrap">
+            <Heading as="h2" fontSize="lg" fontWeight="medium" color="fg">
+              Listado
+            </Heading>
+            <Text fontSize="sm" color="fg.muted">
+              {consulta === "" ? fraseConteo(items.length) : `${visibles.length} de ${fraseConteo(items.length)}`}
+            </Text>
+          </Flex>
+          <Input
+            aria-label="Buscar categorías"
+            placeholder="Buscar por nombre o descripción"
+            value={busqueda}
+            bg="bg.panel"
+            onChange={(event) => setBusqueda(event.target.value)}
+          />
+          {visibles.length === 0 ? (
+            <Text fontSize="sm" color="fg.muted">
+              Ninguna categoría coincide con la búsqueda.
+            </Text>
+          ) : (
+            <TablaCategorias
+              items={visibles}
+              bloqueado={botonesBloqueados}
+              onEditar={empezarEdicion}
+              onPedirBaja={pedirBaja}
+            />
+          )}
+        </Stack>
       ) : null}
+
+      <Dialog.Root
+        open={formularioAbierto}
+        onOpenChange={alCambioFormulario}
+        closeOnEscape={!ocupado}
+        closeOnInteractOutside={!ocupado}
+      >
+        <Portal>
+          <Dialog.Backdrop />
+          <Dialog.Positioner>
+            <Dialog.Content
+              bg="bg.panel"
+              color="fg"
+              borderWidth="0"
+              borderRadius="l3"
+              boxShadow="0 24px 60px rgba(28, 27, 23, 0.12)"
+              w="calc(100vw - 2rem)"
+              maxW="32rem"
+              _dark={{ borderWidth: "1px", borderColor: "borde" }}
+            >
+              <Dialog.Header>
+                <Dialog.Title fontWeight="500" fontSize="1.5rem" letterSpacing="-0.03em" color="fg">
+                  {editandoId ? "Editar categoría" : "Nueva categoría"}
+                </Dialog.Title>
+              </Dialog.Header>
+              <form
+                noValidate
+                aria-label={editandoId ? "Editar categoría" : "Nueva categoría"}
+                onSubmit={(event) => void alEnviar(event)}
+              >
+                <Dialog.Body>
+                  <Stack gap={4}>
+                    <Dialog.Description color="fg.muted">
+                      El nombre es el que vas a ver al asignarla a un gasto.
+                    </Dialog.Description>
+                    {errorAccion && formularioAbierto ? (
+                      <div ref={alertaAccion}>
+                        <AlertaError texto={errorAccion} />
+                      </div>
+                    ) : null}
+                    <Field.Root required invalid={Boolean(errorNombre)} disabled={ocupado}>
+                      <Field.Label color="fg">Nombre</Field.Label>
+                      <Input
+                        ref={nombreInput}
+                        name="nombre"
+                        autoComplete="off"
+                        maxLength={80}
+                        value={nombre}
+                        disabled={ocupado}
+                        onChange={(event) => alCambiarNombre(event.target.value)}
+                      />
+                      {errorNombre ? <Field.ErrorText color="estadoTexto.falla">{errorNombre}</Field.ErrorText> : null}
+                    </Field.Root>
+                    <Field.Root invalid={Boolean(errorDescripcion)} disabled={ocupado}>
+                      <Field.Label color="fg">Descripción</Field.Label>
+                      <Textarea
+                        name="descripcion"
+                        autoComplete="off"
+                        rows={3}
+                        maxLength={280}
+                        resize="vertical"
+                        value={descripcion}
+                        disabled={ocupado}
+                        onChange={(event) => alCambiarDescripcion(event.target.value)}
+                      />
+                      <Field.HelperText color="fg.muted">Opcional.</Field.HelperText>
+                      {errorDescripcion ? (
+                        <Field.ErrorText color="estadoTexto.falla">{errorDescripcion}</Field.ErrorText>
+                      ) : null}
+                    </Field.Root>
+                  </Stack>
+                </Dialog.Body>
+                <Dialog.Footer gap={3}>
+                  <Dialog.ActionTrigger asChild>
+                    <Button type="button" variant="ghost" borderRadius="full" color="fg" disabled={ocupado}>
+                      Cancelar
+                    </Button>
+                  </Dialog.ActionTrigger>
+                  <Button type="submit" borderRadius="full" loading={pedido === "guardar"} disabled={ocupado && pedido !== "guardar"} css={botonSolido}>
+                    {editandoId ? "Guardar" : "Agregar"}
+                  </Button>
+                </Dialog.Footer>
+              </form>
+              <Dialog.CloseTrigger asChild>
+                <CloseButton aria-label="Cerrar" color="fg" disabled={ocupado} />
+              </Dialog.CloseTrigger>
+            </Dialog.Content>
+          </Dialog.Positioner>
+        </Portal>
+      </Dialog.Root>
+
+      <Dialog.Root
+        role="alertdialog"
+        open={bajaId !== null}
+        onOpenChange={alCambioBaja}
+        closeOnEscape={pedido !== "eliminar"}
+        closeOnInteractOutside={pedido !== "eliminar"}
+      >
+        <Portal>
+          <Dialog.Backdrop />
+          <Dialog.Positioner>
+            <Dialog.Content
+              bg="bg.panel"
+              color="fg"
+              borderWidth="0"
+              borderRadius="l3"
+              boxShadow="0 24px 60px rgba(28, 27, 23, 0.12)"
+              w="calc(100vw - 2rem)"
+              maxW="28rem"
+              _dark={{ borderWidth: "1px", borderColor: "borde" }}
+            >
+              <Dialog.Header>
+                <Dialog.Title fontWeight="500" fontSize="1.5rem" letterSpacing="-0.03em" color="fg">
+                  Eliminar categoría
+                </Dialog.Title>
+              </Dialog.Header>
+              <Dialog.Body>
+                <Stack gap={4}>
+                  <Dialog.Description color="fg.muted">
+                    {enBaja ? (
+                      <>
+                        ¿Eliminar{" "}
+                        <Text as="span" fontWeight="medium" color="fg" overflowWrap="anywhere">
+                          {enBaja.nombre}
+                        </Text>
+                        ? Los gastos que ya la tienen asignada conservan ese nombre.
+                      </>
+                    ) : (
+                      "¿Eliminar esta categoría? Los gastos que ya la tienen asignada conservan ese nombre."
+                    )}
+                  </Dialog.Description>
+                  {errorAccion && bajaId !== null ? (
+                    <div ref={alertaAccion}>
+                      <AlertaError texto={errorAccion} />
+                    </div>
+                  ) : null}
+                </Stack>
+              </Dialog.Body>
+              <Dialog.Footer gap={3}>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  borderRadius="full"
+                  color="fg"
+                  disabled={pedido === "eliminar"}
+                  onClick={() => alCambioBaja({ open: false })}
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  type="button"
+                  borderRadius="full"
+                  loading={pedido === "eliminar"}
+                  disabled={!bajaId || (ocupado && pedido !== "eliminar")}
+                  aria-label={enBaja ? `Confirmar eliminación de ${enBaja.nombre}` : "Confirmar eliminación"}
+                  onClick={() => {
+                    if (bajaId) void confirmarBaja(bajaId)
+                  }}
+                  css={botonSolido}
+                >
+                  Eliminar
+                </Button>
+              </Dialog.Footer>
+              <Dialog.CloseTrigger asChild>
+                <CloseButton aria-label="Cerrar" color="fg" disabled={pedido === "eliminar"} />
+              </Dialog.CloseTrigger>
+            </Dialog.Content>
+          </Dialog.Positioner>
+        </Portal>
+      </Dialog.Root>
     </Stack>
   )
 }

@@ -9,21 +9,17 @@ import {
   Heading,
   Image,
   Input,
+  Menu,
   NativeSelect,
+  Portal,
   Stack,
   Text,
 } from "@chakra-ui/react"
-import { useEffect, useState } from "react"
-import { Link, useNavigate, useParams } from "react-router"
+import { Fragment, forwardRef, useEffect, useRef, useState } from "react"
+import { Link, useLocation, useNavigate, useParams } from "react-router"
 import { ErrorApi, cliente, esAbort } from "../api/cliente"
-import {
-  CATEGORIAS,
-  ETIQUETA_CATEGORIA,
-  esBorrador,
-  type Categoria,
-  type DocumentoDetalle,
-  type Hilo,
-} from "../api/tipos"
+import { esBorrador, etiquetaCategoria, type CategoriaItem, type DocumentoDetalle, type Hilo } from "../api/tipos"
+import { opcionActual, opcionesDelCatalogo, opcionesGenerales } from "../categorias"
 import { toaster } from "../avisos"
 import { Cargando } from "../componentes/Cargando"
 import {
@@ -39,6 +35,8 @@ import {
   IconoPeriodo,
   IconoPersona,
   IconoProveedor,
+  IconoPuntos,
+  IconoVolver,
   ListaChats,
   Pastilla,
   type TonoPastilla,
@@ -50,34 +48,9 @@ import { leerVista } from "../vistas"
 
 const SOMBRA = "0 12px 40px rgba(28, 27, 23, 0.06)"
 
-const bordeControl = "rgba(58, 57, 52, 0.35)"
-const bordeControlOscuro = "rgba(243, 239, 228, 0.45)"
-
 const botonFantasma = {
   color: "fg",
   _hover: { bg: "bg.hover", color: "fg" },
-} as const
-
-const botonVolver = {
-  color: "fg",
-  bg: "bg.panel",
-  borderColor: bordeControl,
-  _hover: { bg: "bg.hover", color: "fg", borderColor: bordeControl },
-  _dark: {
-    borderColor: bordeControlOscuro,
-    _hover: { borderColor: bordeControlOscuro },
-  },
-} as const
-
-const botonContorno = {
-  color: "fg",
-  borderColor: bordeControl,
-  bg: "bg.panel",
-  _hover: { bg: "bg.hover", color: "fg", borderColor: bordeControl },
-  _dark: {
-    borderColor: bordeControlOscuro,
-    _hover: { borderColor: bordeControlOscuro },
-  },
 } as const
 
 const botonSolido = {
@@ -86,12 +59,21 @@ const botonSolido = {
   _hover: { bg: "solido.hover", color: "fg.sobreSolido" },
 } as const
 
-const botonPeligro = {
-  color: "estadoTexto.falla",
-  borderColor: "estadoTexto.falla",
-  _hover: { bg: "estado.fallaFondo", color: "estado.falla" },
+const itemMenu = {
+  px: 3,
+  py: 2,
+  mx: 1,
+  borderRadius: "12px",
+  cursor: "pointer",
+  color: "fg",
+  _highlighted: { bg: "bg.subtle" },
 } as const
 
+const itemPeligro = {
+  ...itemMenu,
+  color: "estadoTexto.falla",
+  _highlighted: { bg: "estado.fallaFondo", color: "estado.falla" },
+} as const
 
 const alertaFalla = {
   borderRadius: "16px",
@@ -130,14 +112,70 @@ function etiquetaCampo(campo: string): string {
   return ETIQUETA_CAMPO[campo] ?? campo
 }
 
-function esCategoria(valor: string): valor is Categoria {
-  return valor === "servicios" || valor === "expensas" || valor === "alquiler"
+function pideCorregir(state: unknown): boolean {
+  if (!state || typeof state !== "object" || !("corregir" in state)) return false
+  return (state as { corregir?: unknown }).corregir === true
 }
 
 function textoCambio(campo: string, valor: string | null): string {
   if (valor == null || valor.trim() === "") return "vacío"
-  if (campo === "categoria" && esCategoria(valor)) return ETIQUETA_CATEGORIA[valor]
+  if (campo === "categoria") return etiquetaCategoria(valor)
   return valor
+}
+
+function MenuAcciones({
+  puedeEditar,
+  puedeAnular,
+  guardando,
+  onEditar,
+  onAnular,
+  onEliminar,
+}: {
+  puedeEditar: boolean
+  puedeAnular: boolean
+  guardando: boolean
+  onEditar: () => void
+  onAnular: () => void
+  onEliminar: () => void
+}) {
+  return (
+    <Menu.Root positioning={{ placement: "bottom-end" }}>
+      <Menu.Trigger asChild>
+        <Button
+          type="button"
+          aria-label="Acciones"
+          variant="ghost"
+          borderRadius="full"
+          flexShrink={0}
+          boxSize="2.75rem"
+          px={0}
+          disabled={guardando}
+          css={botonFantasma}
+        >
+          <IconoPuntos />
+        </Button>
+      </Menu.Trigger>
+      <Portal>
+        <Menu.Positioner>
+          <Menu.Content bg="bg.panel" borderWidth="1px" borderColor="borde" borderRadius="16px" boxShadow={SOMBRA} minW="11rem" py={1}>
+            {puedeEditar ? (
+              <Menu.Item value="editar" onClick={onEditar} css={itemMenu}>
+                Editar
+              </Menu.Item>
+            ) : null}
+            {puedeAnular ? (
+              <Menu.Item value="anular" onClick={onAnular} css={itemPeligro}>
+                Anular
+              </Menu.Item>
+            ) : null}
+            <Menu.Item value="eliminar" onClick={onEliminar} css={itemPeligro}>
+              Eliminar
+            </Menu.Item>
+          </Menu.Content>
+        </Menu.Positioner>
+      </Portal>
+    </Menu.Root>
+  )
 }
 
 function etiquetaEstado(documento: DocumentoDetalle): { texto: string; tono: TonoPastilla } {
@@ -173,6 +211,122 @@ function Nota({ children, fondo, color = "marca.carbon" }: { children: string; f
   )
 }
 
+const FRASE_FALTA: Partial<Record<keyof BorradorFactura, string>> = {
+  proveedor: "el proveedor",
+  categoria: "la categoría",
+  periodo: "el período",
+  monto: "el monto",
+  moneda: "la moneda",
+  numero_comprobante: "el número de comprobante",
+}
+
+const marcaInvalida = {
+  "&[aria-invalid=true]": {
+    borderColor: "estado.falla",
+    focusRingColor: "estado.falla",
+  },
+} as const
+
+function esPedidoDeCompletar(aviso: string): boolean {
+  return aviso.startsWith("Falta ") && aviso.includes("antes de confirmar")
+}
+
+function enfocarCampo(clave: keyof BorradorFactura) {
+  const nodo = document.querySelector<HTMLElement>(
+    `[data-campo="${clave}"] input, [data-campo="${clave}"] select`,
+  )
+  if (!nodo) return
+  nodo.focus({ preventScroll: true })
+  nodo.scrollIntoView({ behavior: "smooth", block: "center" })
+}
+
+function verboCompletar(claves: Array<keyof BorradorFactura>): string {
+  if (claves.length !== 1) return "Completalos"
+  const frase = FRASE_FALTA[claves[0]!] ?? ""
+  return frase.startsWith("la ") ? "Completala" : "Completalo"
+}
+
+function EnlaceCampo({ children, onClick }: { children: string; onClick: () => void }) {
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      display="inline"
+      h="auto"
+      minW={0}
+      px={0}
+      py={0}
+      fontSize="inherit"
+      fontWeight="medium"
+      lineHeight="inherit"
+      color="inherit"
+      textDecoration="underline"
+      textUnderlineOffset="2px"
+      verticalAlign="baseline"
+      _hover={{ bg: "transparent", color: "inherit" }}
+      onClick={onClick}
+    >
+      {children}
+    </Button>
+  )
+}
+
+function ListaCampos({
+  claves,
+  onIr,
+}: {
+  claves: Array<keyof BorradorFactura>
+  onIr: (clave: keyof BorradorFactura) => void
+}) {
+  return claves.map((clave, indice) => {
+    const ultimo = indice === claves.length - 1
+    const conector = indice === 0 ? null : ultimo ? " y " : ", "
+    return (
+      <Fragment key={clave}>
+        {conector}
+        <EnlaceCampo onClick={() => onIr(clave)}>
+          {FRASE_FALTA[clave] ?? etiquetaCampo(clave).toLocaleLowerCase("es")}
+        </EnlaceCampo>
+      </Fragment>
+    )
+  })
+}
+
+const AvisoAlEnviar = forwardRef<
+  HTMLDivElement,
+  {
+    errores: ErroresFactura
+    accion: "confirmar" | "guardar"
+    onIr: (clave: keyof BorradorFactura) => void
+  }
+>(function AvisoAlEnviar({ errores, accion, onIr }, ref) {
+  const claves = CLAVES.filter((clave) => errores[clave])
+  const faltan = claves.filter((clave) => (errores[clave] ?? "").startsWith("Falta "))
+  const otros = claves.filter((clave) => !(errores[clave] ?? "").startsWith("Falta "))
+  if (claves.length === 0) return null
+  const cierre = accion === "confirmar" ? "confirmar" : "guardar"
+  return (
+    <Box ref={ref} role="alert" bg="estado.avisoFondo" color="marca.carbon" borderRadius="16px" px={4} py={3}>
+      <Stack gap={1}>
+        {faltan.length > 0 ? (
+          <Text as="div" fontSize="sm" lineHeight="1.45">
+            {faltan.length === 1 ? "Falta " : "Faltan "}
+            <ListaCampos claves={faltan} onIr={onIr} />
+            {`. ${verboCompletar(faltan)} antes de ${cierre}.`}
+          </Text>
+        ) : null}
+        {otros.map((clave) => (
+          <Text key={clave} as="div" fontSize="sm" lineHeight="1.45">
+            <EnlaceCampo onClick={() => onIr(clave)}>{etiquetaCampo(clave)}</EnlaceCampo>
+            {": "}
+            {errores[clave]}
+          </Text>
+        ))}
+      </Stack>
+    </Box>
+  )
+})
+
 function mimeBase(mime: string): string {
   return mime.split(";", 1)[0]?.trim().toLowerCase() ?? ""
 }
@@ -180,17 +334,26 @@ function mimeBase(mime: string): string {
 export function Revision() {
   const { id = "" } = useParams()
   const navigate = useNavigate()
+  const location = useLocation()
+  const estadoNavegacion = useRef(location.state)
+  estadoNavegacion.current = location.state
   const { email } = useSesion()
   const [documento, setDocumento] = useState<DocumentoDetalle | null>(null)
   const [form, setForm] = useState<BorradorFactura | null>(null)
   const [errores, setErrores] = useState<ErroresFactura>({})
+  const [revisado, setRevisado] = useState(false)
   const [falla, setFalla] = useState<string | null>(null)
+  const avisoRef = useRef<HTMLDivElement>(null)
+  const enfocarAviso = useRef(false)
   const [cargando, setCargando] = useState(true)
   const [guardando, setGuardando] = useState(false)
   const [corrigiendo, setCorrigiendo] = useState(false)
   const [vistaServidor, setVistaServidor] = useState<{ id: string; url: string; mime: string } | null>(null)
   const [consultaArchivo, setConsultaArchivo] = useState<{ id: string; listo: boolean }>({ id: "", listo: false })
   const [fallaArchivo, setFallaArchivo] = useState<{ id: string; texto: string } | null>(null)
+  const [catalogo, setCatalogo] = useState<CategoriaItem[] | null>(null)
+  const [errorCatalogo, setErrorCatalogo] = useState<string | null>(null)
+  const [intentoCatalogo, setIntentoCatalogo] = useState(0)
   const [chats, setChats] = useState<Hilo[]>([])
   const [cargandoChats, setCargandoChats] = useState(false)
   const [fallaChats, setFallaChats] = useState(false)
@@ -202,16 +365,22 @@ export function Revision() {
       setCargando(false)
       return
     }
+    const abrirEdicion = pideCorregir(estadoNavegacion.current)
     const ctrl = new AbortController()
     setCargando(true)
     setCorrigiendo(false)
+    setErrores({})
+    setRevisado(false)
     cliente
       .verDocumento(id, ctrl.signal)
       .then((dato) => {
         setDocumento(dato)
         setForm(desdeCampos(dato.campos))
-        setCorrigiendo(false)
+        setCorrigiendo(abrirEdicion && !esBorrador(dato) && !dato.anulado)
+        setErrores({})
+        setRevisado(false)
         setFalla(null)
+        if (abrirEdicion) navigate(`/documentos/${id}`, { replace: true, state: null })
       })
       .catch((error: unknown) => {
         if (esAbort(error)) return
@@ -222,7 +391,23 @@ export function Revision() {
         if (!ctrl.signal.aborted) setCargando(false)
       })
     return () => ctrl.abort()
-  }, [id])
+  }, [id, navigate])
+
+  useEffect(() => {
+    const ctrl = new AbortController()
+    cliente
+      .listarCategorias(ctrl.signal)
+      .then((lista) => {
+        setCatalogo(lista.items)
+        setErrorCatalogo(null)
+      })
+      .catch((error: unknown) => {
+        if (esAbort(error)) return
+        setCatalogo([])
+        setErrorCatalogo(error instanceof ErrorApi ? error.message : "No se pudieron cargar las categorías.")
+      })
+    return () => ctrl.abort()
+  }, [intentoCatalogo])
 
   useEffect(() => {
     if (!id) return
@@ -280,14 +465,49 @@ export function Revision() {
 
   function actualizar<K extends keyof BorradorFactura>(clave: K, valor: BorradorFactura[K]) {
     setForm((actual) => (actual ? { ...actual, [clave]: valor } : actual))
+    if (!form) return
+    const siguiente = { ...form, [clave]: valor }
+    if (revisado) {
+      const armado = armarFactura(siguiente)
+      setErrores(armado.ok ? {} : armado.errores)
+      return
+    }
+    setErrores((actual) => {
+      if (!actual[clave]) return actual
+      const copia = { ...actual }
+      delete copia[clave]
+      return copia
+    })
   }
+
+  function publicarErrores(siguientes: ErroresFactura) {
+    enfocarAviso.current = true
+    setRevisado(true)
+    setErrores(siguientes)
+    setFalla(null)
+  }
+
+  function publicarErrorApi(error: ErrorApi) {
+    const siguientes = erroresDeApi(error.campos)
+    if (Object.keys(siguientes).length > 0) {
+      enfocarAviso.current = true
+      setRevisado(true)
+    }
+    setErrores(siguientes)
+    setFalla(error.message)
+  }
+
+  useEffect(() => {
+    if (!enfocarAviso.current) return
+    enfocarAviso.current = false
+    avisoRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" })
+  }, [errores])
 
   async function confirmar() {
     if (!form || !documento || !esBorrador(documento) || guardando) return
     const armado = armarFactura(form)
     if (!armado.ok) {
-      setErrores(armado.errores)
-      setFalla("Revisá los campos antes de confirmar.")
+      publicarErrores(armado.errores)
       return
     }
     setGuardando(true)
@@ -306,27 +526,10 @@ export function Revision() {
       navigate("/registros")
     } catch (error) {
       if (error instanceof ErrorApi) {
-        setErrores(erroresDeApi(error.campos))
-        setFalla(error.message)
+        publicarErrorApi(error)
       } else {
         setFalla("No se pudo confirmar el comprobante.")
       }
-    } finally {
-      setGuardando(false)
-    }
-  }
-
-  async function descartar() {
-    if (!documento || !esBorrador(documento) || guardando) return
-    if (!window.confirm("¿Descartás este borrador? No se puede deshacer.")) return
-    setGuardando(true)
-    setFalla(null)
-    try {
-      await cliente.descartar(documento.id)
-      toaster.create({ title: "Borrador descartado", type: "success" })
-      navigate("/registros")
-    } catch (error) {
-      setFalla(error instanceof ErrorApi ? error.message : "No se pudo descartar el borrador.")
     } finally {
       setGuardando(false)
     }
@@ -336,8 +539,7 @@ export function Revision() {
     if (!form || !documento || esBorrador(documento) || documento.anulado || guardando) return
     const armado = armarFactura(form)
     if (!armado.ok) {
-      setErrores(armado.errores)
-      setFalla("Revisá los campos antes de guardar.")
+      publicarErrores(armado.errores)
       return
     }
     setGuardando(true)
@@ -351,12 +553,13 @@ export function Revision() {
           : actualizado
       setDocumento(conFecha)
       setForm(desdeCampos(actualizado.campos))
+      setErrores({})
+      setRevisado(false)
       setCorrigiendo(false)
       toaster.create({ title: "Comprobante corregido", type: "success" })
     } catch (error) {
       if (error instanceof ErrorApi) {
-        setErrores(erroresDeApi(error.campos))
-        setFalla(error.message)
+        publicarErrorApi(error)
       } else {
         setFalla("No se pudo corregir el comprobante.")
       }
@@ -369,6 +572,7 @@ export function Revision() {
     if (!documento) return
     setForm(desdeCampos(documento.campos))
     setErrores({})
+    setRevisado(false)
     setFalla(null)
     setCorrigiendo(false)
   }
@@ -389,6 +593,22 @@ export function Revision() {
     }
   }
 
+  async function eliminar() {
+    if (!documento || guardando) return
+    if (!window.confirm("¿Eliminás este comprobante? Se borra el archivo y no se puede deshacer.")) return
+    setGuardando(true)
+    setFalla(null)
+    try {
+      await cliente.eliminar(documento.id)
+      toaster.create({ title: "Comprobante eliminado", type: "success" })
+      navigate("/registros")
+    } catch (error) {
+      setFalla(error instanceof ErrorApi ? error.message : "No se pudo eliminar el comprobante.")
+    } finally {
+      setGuardando(false)
+    }
+  }
+
   if (cargando) return <Cargando texto="Abriendo el comprobante" />
 
   if (!documento || !form) {
@@ -400,12 +620,17 @@ export function Revision() {
         </Alert.Root>
         <Button
           asChild
+          aria-label="Volver a registros"
           alignSelf="flex-start"
-          variant="outline"
+          variant="ghost"
           borderRadius="full"
-          css={botonVolver}
+          boxSize="2.75rem"
+          px={0}
+          css={botonFantasma}
         >
-          <Link to="/registros">Volver a registros</Link>
+          <Link to="/registros">
+            <IconoVolver />
+          </Link>
         </Button>
       </Stack>
     )
@@ -413,6 +638,9 @@ export function Revision() {
 
   const anulado = !esBorrador(documento) && documento.anulado
   const editando = esBorrador(documento) || corrigiendo
+  const avisosDatos = esBorrador(documento)
+    ? documento.advertencias.filter((aviso) => !esPedidoDeCompletar(aviso))
+    : []
   const vistaRemota = vistaServidor?.id === id ? vistaServidor : null
   const vista = vistaRemota
     ? { url: vistaRemota.url, mime: vistaRemota.mime, nombre: vistaLocal?.nombre }
@@ -427,7 +655,12 @@ export function Revision() {
   const estado = etiquetaEstado(documento)
   const proveedor = form.proveedor.trim()
   const titulo = proveedor || "Revisar comprobante"
-  const categoriaTexto = form.categoria ? ETIQUETA_CATEGORIA[form.categoria] : "Sin categoría"
+  const categoriaTexto = etiquetaCategoria(form.categoria)
+  const categoriasPropias = opcionesDelCatalogo(catalogo ?? [])
+  const categoriasOcupadas = new Set(categoriasPropias.map((opcion) => opcion.value))
+  const categoriasGenerales = opcionesGenerales(categoriasOcupadas)
+  for (const opcion of categoriasGenerales) categoriasOcupadas.add(opcion.value)
+  const categoriaEnGasto = opcionActual(form.categoria, categoriasOcupadas)
   const moneda = (form.moneda.trim() || "ARS").toUpperCase()
   const marcaTiempo = esBorrador(documento) ? documento.creado_en : documento.confirmado_en
   const etiquetaFecha = esBorrador(documento) ? "Cargado" : "Confirmado"
@@ -455,12 +688,24 @@ export function Revision() {
 
   return (
     <Stack gap={{ base: 5, md: 6 }}>
-      <Stack gap={2}>
-        <Button asChild variant="outline" alignSelf="flex-start" borderRadius="full" css={botonVolver}>
-          <Link to="/registros">Volver a registros</Link>
+      <Flex align="center" gap={1} minW={0}>
+        <Button
+          asChild
+          aria-label="Volver a registros"
+          variant="ghost"
+          borderRadius="full"
+          flexShrink={0}
+          boxSize={{ base: "2.75rem", md: "3.25rem" }}
+          px={0}
+          css={botonFantasma}
+        >
+          <Link to="/registros">
+            <IconoVolver />
+          </Link>
         </Button>
         <Heading
           as="h1"
+          minW={0}
           color="fg"
           fontFamily="'Fraunces', Georgia, serif"
           fontSize={{ base: "2.15rem", md: "2.85rem" }}
@@ -470,7 +715,20 @@ export function Revision() {
         >
           {titulo}
         </Heading>
-      </Stack>
+        <MenuAcciones
+            puedeEditar={!esBorrador(documento) && !anulado && !corrigiendo}
+            puedeAnular={!esBorrador(documento) && !anulado}
+            guardando={guardando}
+            onEditar={() => {
+              setErrores({})
+              setRevisado(false)
+              setFalla(null)
+              setCorrigiendo(true)
+            }}
+            onAnular={() => void anular()}
+            onEliminar={() => void eliminar()}
+          />
+      </Flex>
 
       {falla ? (
         <Alert.Root status="error" css={alertaFalla}>
@@ -531,14 +789,6 @@ export function Revision() {
               El monto ya quedó guardado. El texto de la factura todavía no se puede buscar.
             </Nota>
           ) : null}
-          {esBorrador(documento)
-            ? documento.advertencias.map((aviso) => (
-                <Nota key={aviso} fondo="estado.avisoFondo">
-                  {aviso}
-                </Nota>
-              ))
-            : null}
-
           <Card.Root bg="bg.panel" borderWidth="0" borderRadius="20px" boxShadow={SOMBRA} _dark={{ borderWidth: "1px", borderColor: "borde" }}>
             <Card.Header>
               <Card.Title as="h2" fontWeight="medium" color="fg" letterSpacing="-0.03em">
@@ -603,24 +853,9 @@ export function Revision() {
           {editando ? null : (
           <Card.Root bg="bg.panel" borderWidth="0" borderRadius="20px" boxShadow={SOMBRA} _dark={{ borderWidth: "1px", borderColor: "borde" }}>
             <Card.Header>
-              <Flex justify="space-between" align="center" gap={3} wrap="wrap">
-                <Card.Title as="h2" fontWeight="medium" color="fg" letterSpacing="-0.03em">
-                  Información general
-                </Card.Title>
-                {!esBorrador(documento) && !anulado && !corrigiendo ? (
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    borderRadius="full"
-                    disabled={guardando}
-                    onClick={() => setCorrigiendo(true)}
-                    css={botonContorno}
-                  >
-                    Editar
-                  </Button>
-                ) : null}
-              </Flex>
+              <Card.Title as="h2" fontWeight="medium" color="fg" letterSpacing="-0.03em">
+                Información general
+              </Card.Title>
             </Card.Header>
             <Card.Body>
               <Stack gap={3}>
@@ -638,43 +873,9 @@ export function Revision() {
                 <FilaDato icono={<IconoBusqueda />} etiqueta="Búsqueda" valor={etiquetaBusqueda(documento)} />
                 <FilaDato icono={<IconoArchivo />} etiqueta="Archivo" valor={textoArchivo} />
               </Stack>
-              {!esBorrador(documento) && !anulado && !corrigiendo ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  borderRadius="full"
-                  mt={4}
-                  disabled={guardando}
-                  onClick={() => void anular()}
-                  css={botonPeligro}
-                >
-                  Anular
-                </Button>
-              ) : null}
             </Card.Body>
           </Card.Root>
           )}
-
-          <Card.Root bg="bg.panel" borderWidth="0" borderRadius="20px" boxShadow={SOMBRA} _dark={{ borderWidth: "1px", borderColor: "borde" }}>
-            <Card.Header>
-              <Card.Title as="h2" fontWeight="medium" color="fg" letterSpacing="-0.03em">
-                Chats
-              </Card.Title>
-            </Card.Header>
-            <Card.Body>
-              <ListaChats
-                chats={chats.map((chat) => ({
-                  threadId: chat.thread_id,
-                  titulo: chat.titulo,
-                  cuando: formatFecha(chat.actualizado_en),
-                }))}
-                cargando={cargandoChats}
-                falla={fallaChats}
-                onAbrir={abrirConversacion}
-                onNuevo={abrirChatNuevo}
-              />
-            </Card.Body>
-          </Card.Root>
 
           {cambios.length > 0 ? (
             <Card.Root bg="bg.panel" borderWidth="0" borderRadius="20px" boxShadow={SOMBRA} _dark={{ borderWidth: "1px", borderColor: "borde" }}>
@@ -725,59 +926,135 @@ export function Revision() {
                   }}
                 >
                   <Stack gap={4}>
+                    {avisosDatos.length > 0 ? (
+                      <Box bg="bg.subtle" borderRadius="16px" px={4} py={3}>
+                        <Stack gap={1}>
+                          {avisosDatos.map((aviso) => (
+                            <Text key={aviso} fontSize="sm" lineHeight="1.45" color="fg">
+                              {aviso}
+                            </Text>
+                          ))}
+                        </Stack>
+                      </Box>
+                    ) : null}
                     {editando ? (
                       <>
-                        <Field.Root invalid={Boolean(errores.proveedor)}>
+                        <Field.Root invalid={Boolean(errores.proveedor)} data-campo="proveedor">
                           <Field.Label>Proveedor</Field.Label>
                           <CampoProveedor valor={form.proveedor} onChange={(valor) => actualizar("proveedor", valor)} />
                           {errores.proveedor ? <Field.ErrorText color="estadoTexto.falla">{errores.proveedor}</Field.ErrorText> : null}
                         </Field.Root>
-                        <Field.Root invalid={Boolean(errores.categoria)}>
+                        <Field.Root invalid={Boolean(errores.categoria)} data-campo="categoria">
                           <Field.Label>Categoría</Field.Label>
                           <NativeSelect.Root invalid={Boolean(errores.categoria)}>
                             <NativeSelect.Field
+                              aria-invalid={errores.categoria ? true : undefined}
+                              css={marcaInvalida}
                               value={form.categoria}
-                              onChange={(event) => actualizar("categoria", event.target.value as BorradorFactura["categoria"])}
+                              onChange={(event) => actualizar("categoria", event.target.value)}
                             >
                               <option value="">Elegir</option>
-                              {CATEGORIAS.map((categoria) => (
-                                <option key={categoria} value={categoria}>
-                                  {ETIQUETA_CATEGORIA[categoria]}
-                                </option>
-                              ))}
+                              {categoriasPropias.length > 0 ? (
+                                <optgroup label="Tus categorías">
+                                  {categoriasPropias.map((opcion) => (
+                                    <option key={opcion.value} value={opcion.value}>
+                                      {opcion.label}
+                                    </option>
+                                  ))}
+                                </optgroup>
+                              ) : null}
+                              {categoriasGenerales.length > 0 ? (
+                                <optgroup label="Generales">
+                                  {categoriasGenerales.map((opcion) => (
+                                    <option key={opcion.value} value={opcion.value}>
+                                      {opcion.label}
+                                    </option>
+                                  ))}
+                                </optgroup>
+                              ) : null}
+                              {categoriaEnGasto ? (
+                                <optgroup label="En este gasto">
+                                  <option value={categoriaEnGasto.value}>{categoriaEnGasto.label}</option>
+                                </optgroup>
+                              ) : null}
                             </NativeSelect.Field>
                             <NativeSelect.Indicator />
                           </NativeSelect.Root>
+                          <Field.HelperText color="fg.muted">
+                            {errorCatalogo ? (
+                              <>
+                                No se pudieron cargar tus categorías.{" "}
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  height="auto"
+                                  minW={0}
+                                  px={1}
+                                  color="fg"
+                                  textDecoration="underline"
+                                  onClick={() => {
+                                    setCatalogo(null)
+                                    setErrorCatalogo(null)
+                                    setIntentoCatalogo((valor) => valor + 1)
+                                  }}
+                                >
+                                  Reintentar
+                                </Button>
+                              </>
+                            ) : catalogo === null ? (
+                              "Cargando categorías…"
+                            ) : catalogo.length === 0 ? (
+                              <>
+                                Todavía no hay categorías propias.{" "}
+                                <Link to="/categorias" style={{ color: "inherit", textDecoration: "underline" }}>
+                                  Crear una
+                                </Link>
+                              </>
+                            ) : (
+                              "Elegí una de tus categorías o una general."
+                            )}
+                          </Field.HelperText>
                           {errores.categoria ? <Field.ErrorText color="estadoTexto.falla">{errores.categoria}</Field.ErrorText> : null}
                         </Field.Root>
-                        <Field.Root invalid={Boolean(errores.periodo)}>
+                        <Field.Root invalid={Boolean(errores.periodo)} data-campo="periodo">
                           <Field.Label>Período</Field.Label>
                           <Input
                             type="month"
+                            aria-invalid={errores.periodo ? true : undefined}
+                            css={marcaInvalida}
                             value={form.periodo}
                             onChange={(event) => actualizar("periodo", event.target.value)}
                           />
                           {errores.periodo ? <Field.ErrorText color="estadoTexto.falla">{errores.periodo}</Field.ErrorText> : null}
                         </Field.Root>
-                        <Field.Root invalid={Boolean(errores.monto)}>
+                        <Field.Root invalid={Boolean(errores.monto)} data-campo="monto">
                           <Field.Label>Monto</Field.Label>
                           <Input
                             inputMode="decimal"
+                            aria-invalid={errores.monto ? true : undefined}
+                            css={marcaInvalida}
                             value={form.monto}
                             onChange={(event) => actualizar("monto", event.target.value)}
                           />
                           <Field.HelperText color="fg.muted">Dos decimales, por ejemplo 18500.50</Field.HelperText>
                           {errores.monto ? <Field.ErrorText color="estadoTexto.falla">{errores.monto}</Field.ErrorText> : null}
                         </Field.Root>
-                        <Field.Root invalid={Boolean(errores.moneda)}>
+                        <Field.Root invalid={Boolean(errores.moneda)} data-campo="moneda">
                           <Field.Label>Moneda</Field.Label>
-                          <Input value={form.moneda} onChange={(event) => actualizar("moneda", event.target.value)} />
+                          <Input
+                            aria-invalid={errores.moneda ? true : undefined}
+                            css={marcaInvalida}
+                            value={form.moneda}
+                            onChange={(event) => actualizar("moneda", event.target.value)}
+                          />
                           <Field.HelperText color="fg.muted">Si lo dejás vacío, se usa ARS.</Field.HelperText>
                           {errores.moneda ? <Field.ErrorText color="estadoTexto.falla">{errores.moneda}</Field.ErrorText> : null}
                         </Field.Root>
-                        <Field.Root invalid={Boolean(errores.numero_comprobante)}>
+                        <Field.Root invalid={Boolean(errores.numero_comprobante)} data-campo="numero_comprobante">
                           <Field.Label>Número de comprobante</Field.Label>
                           <Input
+                            aria-invalid={errores.numero_comprobante ? true : undefined}
+                            css={marcaInvalida}
                             value={form.numero_comprobante}
                             onChange={(event) => actualizar("numero_comprobante", event.target.value)}
                           />
@@ -788,51 +1065,31 @@ export function Revision() {
                         </Field.Root>
                       </>
                     ) : null}
+                    <AvisoAlEnviar
+                      ref={avisoRef}
+                      errores={errores}
+                      accion={esBorrador(documento) ? "confirmar" : "guardar"}
+                      onIr={enfocarCampo}
+                    />
                     {esBorrador(documento) ? (
+                      <Button type="submit" loading={guardando} alignSelf="flex-start" borderRadius="full" css={botonSolido}>
+                        Confirmar
+                      </Button>
+                    ) : null}
+                    {corrigiendo ? (
                       <Flex gap={3} wrap="wrap">
                         <Button type="submit" loading={guardando} borderRadius="full" css={botonSolido}>
-                          Confirmar
+                          Guardar
                         </Button>
                         <Button
                           type="button"
-                          variant="outline"
+                          variant="ghost"
                           borderRadius="full"
                           disabled={guardando}
-                          onClick={() => void descartar()}
-                          css={botonPeligro}
+                          onClick={cancelarCorreccion}
+                          css={botonFantasma}
                         >
-                          Descartar
-                        </Button>
-                      </Flex>
-                    ) : null}
-                    {!esBorrador(documento) && !anulado ? (
-                      <Flex gap={3} wrap="wrap">
-                        {corrigiendo ? (
-                          <Button type="submit" loading={guardando} borderRadius="full" css={botonSolido}>
-                            Guardar
-                          </Button>
-                        ) : null}
-                        {corrigiendo ? (
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            borderRadius="full"
-                            disabled={guardando}
-                            onClick={cancelarCorreccion}
-                            css={botonFantasma}
-                          >
-                            Cancelar
-                          </Button>
-                        ) : null}
-                        <Button
-                          type="button"
-                          variant="outline"
-                          borderRadius="full"
-                          disabled={guardando}
-                          onClick={() => void anular()}
-                          css={botonPeligro}
-                        >
-                          Anular
+                          Cancelar
                         </Button>
                       </Flex>
                     ) : null}
@@ -847,6 +1104,27 @@ export function Revision() {
               </Card.Body>
             </Card.Root>
           ) : null}
+
+          <Card.Root bg="bg.panel" borderWidth="0" borderRadius="20px" boxShadow={SOMBRA} _dark={{ borderWidth: "1px", borderColor: "borde" }}>
+            <Card.Header>
+              <Card.Title as="h2" fontWeight="medium" color="fg" letterSpacing="-0.03em">
+                Chats
+              </Card.Title>
+            </Card.Header>
+            <Card.Body>
+              <ListaChats
+                chats={chats.map((chat) => ({
+                  threadId: chat.thread_id,
+                  titulo: chat.titulo,
+                  cuando: formatFecha(chat.actualizado_en),
+                }))}
+                cargando={cargandoChats}
+                falla={fallaChats}
+                onAbrir={abrirConversacion}
+                onNuevo={abrirChatNuevo}
+              />
+            </Card.Body>
+          </Card.Root>
         </Stack>
       </Grid>
     </Stack>

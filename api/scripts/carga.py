@@ -169,6 +169,33 @@ async def _entrar(client: httpx.AsyncClient, base: str, email: str, password: st
     return token
 
 
+async def _esperar_carga(
+    client: httpx.AsyncClient,
+    base: str,
+    token: str,
+    job_id: str,
+    timeout: float = 120,
+) -> str:
+    headers = {"Authorization": f"Bearer {token}"}
+    limite = time.perf_counter() + timeout
+    while time.perf_counter() < limite:
+        respuesta = await client.get(f"{base}/cargas/{job_id}", headers=headers)
+        if respuesta.status_code != 200:
+            raise RuntimeError(f"GET /cargas/{job_id}: HTTP {respuesta.status_code} {_detalle(respuesta)}")
+        cuerpo = respuesta.json()
+        fase = cuerpo.get("fase")
+        if fase == "lista":
+            documento_id = cuerpo.get("documento_id")
+            if isinstance(documento_id, str) and documento_id:
+                return documento_id
+            raise RuntimeError(f"La carga {job_id} quedó lista sin documento")
+        if fase == "falla":
+            detalle = cuerpo.get("mensaje") if isinstance(cuerpo.get("mensaje"), str) else "La carga falló"
+            raise RuntimeError(f"La carga {job_id} falló: {detalle}")
+        await asyncio.sleep(1)
+    raise RuntimeError(f"La carga {job_id} no terminó a tiempo")
+
+
 async def _confirmar_comprobante(
     client: httpx.AsyncClient,
     base: str,
@@ -187,11 +214,12 @@ async def _confirmar_comprobante(
         headers=headers,
         files={"archivo": (nombre, pdf_con_texto(texto), "application/pdf")},
     )
-    if subida.status_code != 201:
+    if subida.status_code != 202:
         raise RuntimeError(f"POST /documentos {nombre}: HTTP {subida.status_code} {_detalle(subida)}")
-    documento_id = subida.json().get("id")
-    if not isinstance(documento_id, str) or not documento_id:
-        raise RuntimeError(f"POST /documentos {nombre} no devolvió id")
+    job_id = subida.json().get("job_id")
+    if not isinstance(job_id, str) or not job_id:
+        raise RuntimeError(f"POST /documentos {nombre} no devolvió job_id")
+    documento_id = await _esperar_carga(client, base, token, job_id)
     confirmado = await client.post(
         f"{base}/documentos/{documento_id}/confirmar",
         headers={**headers, "Content-Type": "application/json"},
