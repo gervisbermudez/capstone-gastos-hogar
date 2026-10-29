@@ -1,0 +1,98 @@
+"""Repositorio async. Las rutas no escriben SQL.
+
+Las firmas que importan ingesta y el grafo están en ``docs/plan-datos.md``.
+Este paquete reexporta la API que antes vivía en un solo módulo.
+"""
+
+from .categorias import (
+    actualizar_categoria,
+    borrar_categoria,
+    crear_categoria,
+    listar_categorias,
+)
+from .comun import EmailDuplicado, NombreDuplicado
+from .documentos import (
+    anular_comprobante,
+    asentar_pago,
+    confirmar_documento,
+    consultar_gastos,
+    corregir_comprobante,
+    descartar_borrador,
+    eliminar_comprobante,
+    exportar_csv,
+    guardar_borrador,
+    listar_documentos,
+    marcar_indexado,
+    obtener_documento,
+    resumen,
+)
+from .hilos import (
+    _titulo,
+    anotar_mensaje,
+    archivar_hilo,
+    desarchivar_hilo,
+    eliminar_hilo,
+    hilo_esta_eliminado,
+    listar_hilos,
+    listar_hilos_de_documento,
+    obtener_hilo,
+)
+from .notificaciones import (
+    descartar_notificaciones_leidas,
+    insertar_notificacion,
+    listar_notificaciones,
+    marcar_notificacion_leida,
+    marcar_notificaciones_leidas,
+)
+from .usuarios import (
+    actualizar_email,
+    actualizar_nombre,
+    actualizar_password_hash,
+    buscar_usuario_por_email,
+    buscar_usuario_por_id,
+    crear_usuario,
+    eliminar_usuario,
+)
+
+__all__ = [
+    "EmailDuplicado",
+    "NombreDuplicado",
+    "_titulo",
+    "actualizar_categoria",
+    "actualizar_email",
+    "actualizar_nombre",
+    "actualizar_password_hash",
+    "anotar_mensaje",
+    "anular_comprobante",
+    "archivar_hilo",
+    "asentar_pago",
+    "borrar_categoria",
+    "buscar_usuario_por_email",
+    "buscar_usuario_por_id",
+    "confirmar_documento",
+    "consultar_gastos",
+    "corregir_comprobante",
+    "crear_categoria",
+    "crear_usuario",
+    "desarchivar_hilo",
+    "descartar_borrador",
+    "descartar_notificaciones_leidas",
+    "eliminar_comprobante",
+    "eliminar_hilo",
+    "eliminar_usuario",
+    "exportar_csv",
+    "guardar_borrador",
+    "hilo_esta_eliminado",
+    "insertar_notificacion",
+    "listar_categorias",
+    "listar_documentos",
+    "listar_hilos",
+    "listar_hilos_de_documento",
+    "listar_notificaciones",
+    "marcar_indexado",
+    "marcar_notificacion_leida",
+    "marcar_notificaciones_leidas",
+    "obtener_documento",
+    "obtener_hilo",
+    "resumen",
+]

@@ -71,6 +71,45 @@ def _registrar(cliente: TestClient, email: str, password: str = CLAVE) -> dict:
     return respuesta.json()
 
 
+def test_registro_rechaza_clave_corta_y_el_login_acepta_una_ya_guardada(tmp_path, monkeypatch) -> None:
+    _entorno(monkeypatch, tmp_path)
+    with _cliente() as cliente:
+        corta = cliente.post("/auth/registro", json={"email": "corta@example.com", "password": "abc"})
+        assert corta.status_code == 422
+        enorme = cliente.post(
+            "/auth/registro",
+            json={"email": "enorme@example.com", "password": "a" * 129},
+        )
+        assert enorme.status_code == 422
+
+        async def alta() -> None:
+            await repositorio.crear_usuario("vieja@example.com", auth.hashear("abc"))
+
+        asyncio.run(alta())
+        login = cliente.post("/auth/login", json={"email": "vieja@example.com", "password": "abc"})
+        assert login.status_code == 200
+        token = login.json()["access_token"]
+        rango = cliente.get(
+            "/resumen",
+            params={"desde": "2026-12", "hasta": "2026-01"},
+            headers=_bearer(token),
+        )
+        assert rango.status_code == 422
+
+
+def test_consulta_demasiado_larga() -> None:
+    from pydantic import ValidationError
+
+    from app.esquemas import ConsultaTarea
+
+    ConsultaTarea(query="a" * 2000)
+    try:
+        ConsultaTarea(query="a" * 2001)
+    except ValidationError:
+        return
+    raise AssertionError("una consulta de 2001 caracteres tenía que ser inválida")
+
+
 def test_cambiar_email_normaliza_y_el_token_sigue(tmp_path, monkeypatch) -> None:
     _entorno(monkeypatch, tmp_path)
     with _cliente() as cliente:

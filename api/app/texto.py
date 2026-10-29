@@ -7,8 +7,6 @@ from typing import Any
 
 from langchain_core.messages import BaseMessage
 
-from .state import AgentState
-
 _CITA_COMPROBANTE = re.compile(
     r"^\[comprobante [0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
     r"(?:\s*\|[^\]]*)?\]\s*",
@@ -80,21 +78,3 @@ def extraer_texto(contenido: Any) -> str:
                 partes.append(str(bloque.get("text") or ""))
         return separar_canal("".join(partes).strip())
     return separar_canal(str(contenido).strip())
-
-
-def contexto_acotado(state: AgentState, instruccion: str) -> str:
-    """Pasa la tarea y los aportes ya hechos. No pasa metadata del grafo.
-
-    El especialista no ve ``pasos``, ``next_agent`` ni el historial crudo.
-    """
-    mensajes = state.get("messages") or []
-    pregunta = extraer_texto(mensajes[0]) if mensajes else ""
-    bloques = [f"Tarea original:\n{pregunta}"]
-
-    aportes = state.get("contribuciones") or []
-    if aportes:
-        lineas = [f"- [{c['agente']}] {c['aporte']}" for c in aportes]
-        bloques.append("Aportes ya registrados:\n" + "\n".join(lineas))
-
-    bloques.append(f"Tu instrucción:\n{instruccion}")
-    return "\n\n".join(bloques)

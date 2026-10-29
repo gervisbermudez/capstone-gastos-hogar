@@ -32,6 +32,24 @@ logger = logging.getLogger(__name__)
 TAMANO_MAXIMO_BYTES = 10 * 1024 * 1024
 _DETALLE_AUSENTE = "No existe ese documento."
 _DETALLE_CONFIRMAR = "Faltan proveedor, período o monto."
+_MENSAJES_LIBRO = frozenset(
+    {
+        "campos inválidos",
+        "Falta proveedor",
+        "categoria inválida",
+        "periodo inválido",
+        "moneda inválida",
+        "monto inválido",
+        "campo opcional inválido",
+    }
+)
+
+
+def _detalle_libro(exc: ValueError) -> str:
+    texto = str(exc).strip()
+    if texto in _MENSAJES_LIBRO:
+        return texto
+    return _DETALLE_CONFIRMAR
 
 
 async def _indexar_noop(
@@ -169,8 +187,8 @@ async def confirmar(*, user_id: str, documento_id: str, factura: Factura) -> dic
             documento_id=documento_id,
             campos=factura.model_dump(),
         )
-    except ValueError:
-        raise ArchivoRechazado(422, _DETALLE_CONFIRMAR) from None
+    except ValueError as exc:
+        raise ArchivoRechazado(422, _detalle_libro(exc)) from None
     if not isinstance(guardado, dict):
         raise ArchivoRechazado(404, _DETALLE_AUSENTE)
 
@@ -219,6 +237,7 @@ async def descartar(*, user_id: str, documento_id: str) -> None:
 
 
 async def abrir_archivo(*, user_id: str, documento_id: str) -> tuple[bytes, str]:
+    """Bytes y MIME del comprobante de esa persona. 404 si no existe."""
     datos = await obtener_documento(user_id=user_id, documento_id=documento_id)
     if not isinstance(datos, dict):
         raise ArchivoRechazado(404, _DETALLE_AUSENTE)
@@ -229,6 +248,7 @@ async def abrir_archivo(*, user_id: str, documento_id: str) -> tuple[bytes, str]
 
 
 async def anular(*, user_id: str, documento_id: str) -> dict:
+    """Saca el confirmado del resumen. 404 si no es de esa persona."""
     guardado = await anular_comprobante(user_id=user_id, documento_id=documento_id)
     if not isinstance(guardado, dict):
         raise ArchivoRechazado(404, _DETALLE_AUSENTE)
@@ -236,19 +256,21 @@ async def anular(*, user_id: str, documento_id: str) -> dict:
 
 
 async def corregir(*, user_id: str, documento_id: str, factura: Factura) -> dict:
+    """Actualiza el confirmado. 422 si el libro rechaza los campos. 404 si no existe."""
     try:
         guardado = await corregir_comprobante(
             user_id=user_id,
             documento_id=documento_id,
             campos=factura.model_dump(),
         )
-    except ValueError:
-        raise ArchivoRechazado(422, _DETALLE_CONFIRMAR) from None
+    except ValueError as exc:
+        raise ArchivoRechazado(422, _detalle_libro(exc)) from None
     if not isinstance(guardado, dict):
         raise ArchivoRechazado(404, _DETALLE_AUSENTE)
     return _publico_confirmado(guardado)
 
 
 async def exportar(*, user_id: str, desde: str, hasta: str) -> bytes:
+    """CSV en UTF-8 de los confirmados no anulados de esa persona, en el rango."""
     texto = await exportar_csv(user_id=user_id, desde=desde, hasta=hasta)
     return texto.encode("utf-8")

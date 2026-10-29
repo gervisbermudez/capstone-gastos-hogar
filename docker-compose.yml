@@ -37,7 +37,9 @@ services:
       REDIS_URL: redis://redis:6379/0
       PHOENIX_COLLECTOR_ENDPOINT: http://phoenix:6006
       PHOENIX_PROJECT: gastos-hogar
-      FRONTEND_ORIGIN: http://localhost:5173
+      # Esta PC entra por localhost. El celular suma su origen en FRONTEND_ORIGIN_EXTRA.
+      FRONTEND_ORIGIN: ${CAPSTONE_FRONTEND_ORIGIN:-http://localhost:5173}
+      FRONTEND_ORIGIN_EXTRA: ${CAPSTONE_FRONTEND_ORIGIN_EXTRA:-}
       SQLITE_PATH: /app/data/gastos.db
     extra_hosts:
       # LM Studio escucha en el host. 127.0.0.1 dentro del contenedor no es esa máquina.
@@ -63,7 +65,8 @@ services:
     ports:
       - "5173:5173"
     environment:
-      VITE_API_URL: http://localhost:8000
+      # En el celular localhost es el teléfono. CAPSTONE_VITE_API_URL apunta a esta máquina.
+      VITE_API_URL: ${CAPSTONE_VITE_API_URL:-http://localhost:8000}
     volumes:
       - ./frontend:/app
       - frontend_node_modules:/app/node_modules

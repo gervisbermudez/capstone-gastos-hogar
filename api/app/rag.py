@@ -14,13 +14,14 @@ import asyncio
 import json
 import logging
 import os
-import re
 import threading
 from pathlib import Path
 
 from langchain_community.retrievers import BM25Retriever
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+from .periodo import PERIODO as _PERIODO
 
 logger = logging.getLogger(__name__)
 
@@ -29,8 +30,6 @@ INDICE_LOCAL = DATA_DIR / "comprobantes.jsonl"
 NAMESPACE = "comprobantes"
 EMBEDDING_DIM = 384
 TOP_K = 5
-
-_PERIODO = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 
 _candado = threading.Lock()
 _documentos: list[dict] | None = None
@@ -94,6 +93,10 @@ def indexar_sync(
     periodo: str,
     proveedor: str,
 ) -> None:
+    """Escribe el texto en el índice local y, si responde, en Pinecone.
+
+    Si Pinecone falla o no está configurado, el local queda y no se relanza.
+    """
     user_id = user_id.strip()
     documento_id = documento_id.strip()
     categoria = categoria.strip()
@@ -213,6 +216,7 @@ async def indexar_texto(
     periodo: str,
     proveedor: str,
 ) -> None:
+    """Igual que ``indexar_sync``, sin bloquear el loop."""
     await asyncio.to_thread(
         indexar_sync,
         user_id=user_id,
@@ -279,6 +283,7 @@ async def buscar(
     periodo: str | None = None,
     proveedor: str | None = None,
 ) -> list[dict[str, str]]:
+    """Igual que ``buscar_sync``. Sin ``user_id`` no hay resultado cruzado."""
     return await asyncio.to_thread(
         buscar_sync,
         consulta=consulta,

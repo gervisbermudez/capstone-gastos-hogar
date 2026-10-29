@@ -969,7 +969,7 @@ class _RedisCuenta:
         self.valores[clave] = self.valores.get(clave, 0) + 1
         return self.valores[clave]
 
-    async def expire(self, clave: str, segundos: int) -> bool:
+    async def expire(self, clave: str, segundos: int, nx: bool = False) -> bool:
         self.expira[clave] = segundos
         return True
 
@@ -1057,5 +1057,34 @@ def test_tope_de_consultas(monkeypatch):
         else:
             raise AssertionError("tenía que cortar la segunda consulta")
         await exigir_cupo(None, "ana", "consultas")
+
+    asyncio.run(caso())
+
+
+def test_confirmar_conserva_el_mensaje_de_categoria(monkeypatch) -> None:
+    from app.esquemas import Factura
+    from app.extraccion import ArchivoRechazado
+    from app.ingesta import confirmar
+
+    async def presente(**_kwargs: object) -> dict:
+        return {"id": "doc-1", "estado": "borrador"}
+
+    async def rechaza(**_kwargs: object) -> None:
+        raise ValueError("categoria inválida")
+
+    monkeypatch.setattr("app.ingesta.obtener_documento", presente)
+    monkeypatch.setattr("app.ingesta.confirmar_documento", rechaza)
+    factura = Factura(
+        proveedor="Edenor",
+        categoria="Agua",
+        periodo="2026-03",
+        monto="10.00",
+    )
+
+    async def caso() -> None:
+        with pytest.raises(ArchivoRechazado) as exc:
+            await confirmar(user_id="ana", documento_id="doc-1", factura=factura)
+        assert exc.value.status == 422
+        assert exc.value.detail == "categoria inválida"
 
     asyncio.run(caso())

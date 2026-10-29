@@ -577,3 +577,132 @@ def test_el_socket_rechaza_otro_origen_y_un_token_ajeno(tmp_path, monkeypatch) -
         with cliente.websocket_connect("/sesion/ws", headers={"origin": ORIGEN}) as socket:
             socket.send_text(json.dumps({"token": token}))
             assert socket.receive_json()["tipo"] == "listo"
+
+
+def test_marcar_cortados_reencola_pending_y_falla_running() -> None:
+    async def caso() -> None:
+        from app.worker import FAILED, PENDING, QUEUE_KEY, crear_job, guardar, leer, marcar_cortados
+
+        redis = RedisMemoria()
+        await crear_job(redis, "job-start", "hola", user_id="ana", thread_id="hilo-1")
+        redis.listas[QUEUE_KEY].clear()
+        await guardar(
+            redis,
+            {
+                "job_id": "job-resume",
+                "status": PENDING,
+                "action": "resume",
+                "user_id": "ana",
+                "thread_id": "hilo-2",
+                "query": "pago",
+                "result": None,
+            },
+        )
+        await guardar(
+            redis,
+            {
+                "job_id": "job-run",
+                "status": "RUNNING",
+                "action": "start",
+                "user_id": "ana",
+                "thread_id": "hilo-3",
+                "query": "cuanto",
+                "result": None,
+            },
+        )
+        await guardar(
+            redis,
+            {
+                "job_id": "job-espera",
+                "status": "AWAITING_APPROVAL",
+                "user_id": "ana",
+                "thread_id": "hilo-4",
+                "result": "pausa",
+            },
+        )
+
+        assert await marcar_cortados(redis) == 1
+        assert redis.listas[QUEUE_KEY].count("job-start") == 1
+        assert redis.listas[QUEUE_KEY].count("job-resume") == 1
+        assert "job-run" not in redis.listas[QUEUE_KEY]
+        assert "job-espera" not in redis.listas[QUEUE_KEY]
+        inicio = await leer(redis, "job-start")
+        reanudado = await leer(redis, "job-resume")
+        corrido = await leer(redis, "job-run")
+        espera = await leer(redis, "job-espera")
+        assert inicio is not None and inicio["status"] == PENDING
+        assert reanudado is not None and reanudado["status"] == PENDING
+        assert corrido is not None and corrido["status"] == FAILED
+        assert espera is not None and espera["status"] == "AWAITING_APPROVAL"
+
+    asyncio.run(caso())
+
+
+def test_leer_job_con_json_roto_devuelve_none() -> None:
+    async def caso() -> None:
+        from app.cargas import data_key as clave_carga
+        from app.cargas import leer as leer_carga
+        from app.worker import data_key, leer, marcar_cortados
+
+        redis = RedisMemoria()
+        redis.datos[data_key("roto")] = "{no-es-json"
+        redis.datos[clave_carga("roto")] = "[]"
+        assert await leer(redis, "roto") is None
+        assert await leer_carga(redis, "roto") is None
+        assert await marcar_cortados(redis) == 0
+
+    asyncio.run(caso())
+
+
+def test_procesar_no_corre_el_grafo_si_el_hilo_fue_eliminado(tmp_path, monkeypatch) -> None:
+    _entorno(monkeypatch, tmp_path)
+
+    async def eliminado(**_kwargs: object) -> bool:
+        return True
+
+    monkeypatch.setattr("app.repositorio.hilo_esta_eliminado", eliminado)
+    llamados: list[object] = []
+
+    class _Grafo:
+        def invoke(self, *args: object, **_kwargs: object) -> None:
+            llamados.append(args)
+
+    async def caso() -> None:
+        from app.worker import FAILED, crear_job, leer, procesar
+
+        redis = RedisMemoria()
+        await crear_job(redis, "job-1", "hola", user_id="ana", thread_id="hilo-1")
+        await procesar(redis, _Grafo(), "job-1")
+        assert llamados == []
+        job = await leer(redis, "job-1")
+        assert job is not None
+        assert job["status"] == FAILED
+        assert job["error"] == "hilo eliminado"
+
+    asyncio.run(caso())
+
+
+def test_la_sala_suelta_el_canal_si_el_socket_muere() -> None:
+    class _Muerto(_Socket):
+        async def send_json(self, data: dict) -> None:
+            raise RuntimeError("cerrado")
+
+    async def caso() -> None:
+        redis = RedisMemoria()
+        sala = Sala()
+        await sala.arrancar(redis)
+        try:
+            await sala.unir("ana", _Muerto())
+            canal = canal_usuario("ana")
+            assert canal in sala._pubsub.canales
+            await redis.publish(canal, json.dumps({"id": "evt", "tipo": "chat.estado"}))
+            for _ in range(40):
+                if "ana" not in sala._sockets and canal not in sala._pubsub.canales:
+                    break
+                await asyncio.sleep(0.05)
+            assert "ana" not in sala._sockets
+            assert canal not in sala._pubsub.canales
+        finally:
+            await sala.cerrar()
+
+    asyncio.run(caso())

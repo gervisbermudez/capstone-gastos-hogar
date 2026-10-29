@@ -34,6 +34,7 @@ class AgentState(MessagesState):
     pasos: NotRequired[int]
     task_completed: NotRequired[bool]
     razon: NotRequired[str]
+    respuesta_directa: NotRequired[str]
     critica: NotRequired[bool]
     motivo_critico: NotRequired[str]
     aprobado: NotRequired[bool | None]
@@ -68,7 +69,7 @@ def aportes_del_turno(state: dict) -> list[dict]:
 def contexto_turno(state: dict, instruccion: str) -> str:
     """Tarea de este turno, un poco de charla previa y los aportes de ahora.
 
-    No usa ``texto.contexto_acotado``: ese mira el primer mensaje del hilo.
+    Usa el último mensaje humano del turno, no el primero del hilo.
     """
     from .texto import extraer_texto
 

@@ -37,11 +37,25 @@ def user_de_canal(canal: str) -> str | None:
     return medio or None
 
 
+def origenes_permitidos() -> list[str]:
+    """Orígenes del navegador. Vacío o * no habilita a nadie.
+
+    ``FRONTEND_ORIGIN`` es el de esta PC. ``FRONTEND_ORIGIN_EXTRA``, si está,
+    suma el del celular en la red local.
+    """
+    vistos: list[str] = []
+    for clave in ("FRONTEND_ORIGIN", "FRONTEND_ORIGIN_EXTRA"):
+        origen = os.getenv(clave, "").strip().rstrip("/")
+        if not origen or origen == "*" or origen in vistos:
+            continue
+        vistos.append(origen)
+    return vistos
+
+
 def origen_del_socket(websocket: WebSocket) -> bool:
     """Mismo origen que el CORS. El navegador no manda el header Bearer."""
-    permitido = os.getenv("FRONTEND_ORIGIN", "").strip().rstrip("/")
     origen = (websocket.headers.get("origin") or "").rstrip("/")
-    return bool(permitido) and origen == permitido
+    return origen in origenes_permitidos()
 
 
 def _aviso_publico(fila: dict[str, Any]) -> dict[str, Any]:
@@ -169,7 +183,7 @@ class Sala:
         ultimo = False
         async with self._lock:
             grupo = self._sockets.get(user_id)
-            if not grupo:
+            if grupo is None:
                 return
             grupo.discard(websocket)
             if not grupo:
@@ -252,9 +266,21 @@ class Sala:
                 muertos.append(websocket)
         if not muertos:
             return
+        canal = canal_usuario(user_id)
+        ultimo = False
         async with self._lock:
             grupo = self._sockets.get(user_id)
-            if not grupo:
+            if grupo is None:
                 return
             for websocket in muertos:
                 grupo.discard(websocket)
+            if not grupo:
+                del self._sockets[user_id]
+                ultimo = True
+        # Este método corre en el bucle del pubsub. Desuscribir acá, en la
+        # misma tarea, evita esperar una orden que ese bucle todavía no puede tomar.
+        if ultimo and not self._cerrada and self._pubsub is not None:
+            try:
+                await self._pubsub.unsubscribe(canal)
+            except Exception:
+                logger.warning("La sala no pudo soltar el canal de %s", user_id)

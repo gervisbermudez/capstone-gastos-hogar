@@ -10,13 +10,14 @@ import json
 import logging
 import re
 
+from .periodo import PERIODO as _PERIODO
+
 logger = logging.getLogger(__name__)
 
 TTL_SEGUNDOS = 60
 PREFIJO = "gastos:resumen:"
 
 _USUARIO = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
-_PERIODO = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 
 _cliente = None
 

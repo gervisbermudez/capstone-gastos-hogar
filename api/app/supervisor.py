@@ -9,8 +9,9 @@ from __future__ import annotations
 import re
 from typing import Literal
 
+from langchain_core.exceptions import OutputParserException
 from langchain_core.messages import AIMessage
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from .agents.bucle import correr_async
 from .state import AgentState, aportes_del_turno, pregunta_actual
@@ -67,6 +68,11 @@ class DecisionSupervisor(BaseModel):
     razon: str = Field(description="Breve justificación de la decisión")
 
 
+RESPUESTA_SIN_DECISION = (
+    "No pude resolver esa consulta. Preguntame por un total, una comparación "
+    "o qué dice un comprobante."
+)
+
 SUPERVISOR_PROMPT = """Sos el supervisor de un asistente de gastos del hogar.
 - investigador: lee el texto de facturas y contratos. No calcula.
 - analista: consulta el libro de montos y calcula. No lee el texto.
@@ -98,6 +104,7 @@ def clasificar_pregunta(pregunta: str) -> str:
 
 
 def es_comparacion(pregunta: str) -> bool:
+    """True si la pregunta pide contrastar dos períodos o totales."""
     texto = sin_cita_comprobante(pregunta or "").lower()
     return any(marca in texto for marca in _COMPARACION)
 
@@ -176,7 +183,18 @@ def aplicar_decision(state: AgentState, elegido: str, razon: str) -> tuple[str, 
     return elegido, razon
 
 
+def _cierre_sin_decision() -> dict:
+    """El modelo no eligió un paso. Se cierra sin tumbar el job."""
+    return {
+        "next_agent": "FINISH",
+        "task_completed": True,
+        "razon": "El modelo no devolvió una decisión.",
+        "respuesta_directa": RESPUESTA_SIN_DECISION,
+    }
+
+
 def nodo_supervisor(state: AgentState) -> dict:
+    """Elige el próximo nodo. No llama a las tools de los especialistas."""
     return correr_async(_decidir(state))
 
 
@@ -186,6 +204,7 @@ async def _decidir(state: AgentState) -> dict:
             "next_agent": "FINISH",
             "task_completed": True,
             "razon": "Se alcanzó el máximo de pasos.",
+            "respuesta_directa": "",
         }
 
     pregunta = pregunta_actual(state)
@@ -199,16 +218,21 @@ async def _decidir(state: AgentState) -> dict:
         prompt = SUPERVISOR_PROMPT.replace("{contribuciones}", contribuciones_texto)
         from .llm import armar_llm
 
-        decision = await (
-            armar_llm()
-            .with_structured_output(DecisionSupervisor)
-            .ainvoke(
-                [
-                    {"role": "system", "content": prompt},
-                    {"role": "user", "content": f"Tarea original: {pregunta}"},
-                ]
+        try:
+            decision = await (
+                armar_llm()
+                .with_structured_output(DecisionSupervisor)
+                .ainvoke(
+                    [
+                        {"role": "system", "content": prompt},
+                        {"role": "user", "content": f"Tarea original: {pregunta}"},
+                    ]
+                )
             )
-        )
+        except (ValueError, ValidationError, OutputParserException):
+            decision = None
+        if decision is None:
+            return _cierre_sin_decision()
         siguiente, razon = aplicar_decision(state, decision.next, decision.razon)
         if siguiente != decision.next:
             razon = f"El modelo eligió {decision.next}. {razon}"
@@ -219,15 +243,23 @@ async def _decidir(state: AgentState) -> dict:
         "next_agent": siguiente,
         "task_completed": siguiente == "FINISH",
         "razon": razon,
+        "respuesta_directa": "",
     }
 
 
 def nodo_sintesis(state: AgentState) -> dict:
+    """Cierra con la respuesta final. No vuelve a delegar."""
     return correr_async(_sintetizar(state))
 
 
 async def _sintetizar(state: AgentState) -> dict:
     """Arma la respuesta final. No llama herramientas ni vuelve a delegar."""
+    directa = (state.get("respuesta_directa") or "").strip()
+    if directa:
+        return {
+            "messages": [AIMessage(content=directa, name="supervisor")],
+            "respuesta_directa": "",
+        }
     contribuciones = aportes_del_turno(state)
     contribuciones_texto = (
         "\n".join(f"- [{c.get('agente')}] {c.get('aporte', '')}" for c in contribuciones)

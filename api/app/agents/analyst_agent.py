@@ -8,19 +8,20 @@ from __future__ import annotations
 import ast
 import logging
 import operator as op
-import re
 from datetime import datetime
 from typing import Literal
 
 from langchain.agents import create_agent
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.tools import tool
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from ..periodo import PERIODO as _PERIODO
 from ..state import AgentState, contexto_turno, pregunta_actual
-from ..texto import extraer_texto, sin_cita_comprobante
+from ..supervisor import es_comparacion
 from .bucle import correr_async, usuario_del_turno
 from .libro import consultar_gastos_usuario, formatear_gastos
+from .mensajes import lineas_tool, ultima_respuesta
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +35,6 @@ _OPERADORES = {
 
 _reemplazo = None
 
-_PERIODO = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 _MESES = (
     "enero=01, febrero=02, marzo=03, abril=04, mayo=05, junio=06, "
     "julio=07, agosto=08, septiembre=09, octubre=10, noviembre=11, diciembre=12"
@@ -175,31 +175,6 @@ def _agente_analista():
     )
 
 
-def _ultima_respuesta(mensajes: list) -> str:
-    for mensaje in reversed(mensajes):
-        if isinstance(mensaje, AIMessage):
-            return extraer_texto(mensaje)
-    return extraer_texto(mensajes[-1]) if mensajes else ""
-
-
-def _lineas_tool(mensajes: list, nombre: str) -> list[str]:
-    lineas: list[str] = []
-    for mensaje in mensajes:
-        if isinstance(mensaje, ToolMessage) and (mensaje.name == nombre or nombre is None):
-            texto = extraer_texto(mensaje)
-            if texto:
-                lineas.append(texto)
-    return lineas
-
-
-def _es_comparacion(pregunta: str) -> bool:
-    texto = sin_cita_comprobante(pregunta or "").lower()
-    return any(
-        marca in texto
-        for marca in ("compará", "compara", "comparar", "contra", "versus", " vs ", "diferencia")
-    )
-
-
 def nodo_analista(state: AgentState) -> dict:
     """Consulta el libro de esta persona y, si hace falta, resta con la calculadora."""
 
@@ -213,14 +188,14 @@ def nodo_analista(state: AgentState) -> dict:
 
     resultado = correr_async(_correr())
     mensajes = resultado["messages"]
-    respuesta = _ultima_respuesta(mensajes)
+    respuesta = ultima_respuesta(mensajes)
     for nombre in ("consultar_gastos", "calculadora"):
-        for linea in _lineas_tool(mensajes, nombre):
+        for linea in lineas_tool(mensajes, nombre):
             if linea not in respuesta:
                 respuesta = respuesta.rstrip() + "\n" + linea
     if "total:" not in respuesta.lower():
         respuesta = respuesta.rstrip() + "\nNo llamó a consultar_gastos."
-    if _es_comparacion(pregunta_actual(state)) and "resultado:" not in respuesta.lower():
+    if es_comparacion(pregunta_actual(state)) and "resultado:" not in respuesta.lower():
         respuesta = respuesta.rstrip() + "\nNo llamó a la calculadora."
     return {
         "messages": [AIMessage(content=respuesta, name="analista")],

@@ -28,6 +28,7 @@ from urllib.parse import quote
 from opentelemetry import trace
 
 from .graph import config_hilo, estado_inicial
+from .json_redis import decodificar
 from .texto import extraer_texto
 
 logger = logging.getLogger(__name__)
@@ -174,10 +175,9 @@ async def guardar(redis, job: dict[str, Any]) -> None:
 
 
 async def leer(redis, job_id: str) -> dict[str, Any] | None:
+    """Estado del job, o None si no está o el JSON de Redis no se puede leer."""
     crudo = await redis.get(data_key(job_id))
-    if not crudo:
-        return None
-    return json.loads(crudo)
+    return decodificar(crudo, contexto=data_key(job_id))
 
 
 async def actualizar(redis, job_id: str, **cambios: Any) -> dict[str, Any] | None:
@@ -215,6 +215,16 @@ def texto_de_pausa(payload: dict[str, Any] | None) -> str:
                 f"Datos: Categoría {_plano(categoria)}, período {_plano(periodo)}, monto {_plano(monto)}"
             )
     return "\n".join(lineas)
+
+
+async def _hilo_borrado(user_id: str, thread_id: str) -> bool:
+    try:
+        from .repositorio import hilo_esta_eliminado
+
+        return await hilo_esta_eliminado(user_id=user_id, thread_id=thread_id)
+    except Exception as exc:
+        logger.warning("No se pudo saber si el hilo sigue: %s", type(exc).__name__)
+        return False
 
 
 async def _anotar(user_id: str, thread_id: str, rol: str, texto: str) -> None:
@@ -380,20 +390,63 @@ async def encolar_reanudacion(redis, job_id: str, aprobado: bool) -> str:
     return "encolado"
 
 
-async def marcar_cortados(redis) -> int:
-    """Un RUNNING al arrancar es un job que murió a mitad de camino.
+async def _ids_en_cola(redis) -> set[str]:
+    en_cola: set[str] = set()
+    for item in await redis.lrange(QUEUE_KEY, 0, -1) or []:
+        if isinstance(item, bytes):
+            item = item.decode()
+        en_cola.add(str(item))
+    return en_cola
 
-    No se reencola: volver a invocar el mismo hilo puede repetir el efecto.
-    AWAITING_APPROVAL se deja como está: el checkpoint sigue en Redis
-    y el approve reanuda después de un reinicio.
+
+async def marcar_cortados(redis) -> int:
+    """Al arrancar, cierra lo que el proceso anterior dejó a medias.
+
+    Un ``RUNNING`` murió a mitad del grafo: queda ``FAILED`` y no se
+    reencola, porque volver a invocar el mismo hilo puede repetir el efecto.
+    Un ``PENDING`` que ya no está en la cola se perdió entre el ``BLPOP`` y
+    ``RUNNING``, o entre encolar la reanudación y el worker: vuelve a entrar
+    una vez. ``AWAITING_APPROVAL`` se deja: el checkpoint sigue y el approve
+    reanuda. El conteo es solo de jobs pasados a ``FAILED``.
     """
     cortados = 0
+    en_cola = await _ids_en_cola(redis)
     async for clave in redis.scan_iter(match=f"{DATA_PREFIX}*"):
         crudo = await redis.get(clave)
-        if not crudo:
+        job = decodificar(crudo, contexto=str(clave))
+        if job is None:
             continue
-        job = json.loads(crudo)
-        if job.get("status") != RUNNING:
+        status = job.get("status")
+        job_id = str(job.get("job_id") or "")
+        if status == PENDING:
+            if not job_id or job_id in en_cola:
+                continue
+            if job.get("action") not in {None, "start", "resume"}:
+                continue
+            try:
+                await redis.rpush(QUEUE_KEY, job_id)
+            except Exception as exc:
+                logger.warning(
+                    "No se pudo reencolar el job %s: %s",
+                    job_id,
+                    type(exc).__name__,
+                )
+                job["status"] = FAILED
+                job["error"] = "reinicio"
+                job["result"] = RESULTADO_FALLO
+                await guardar(redis, job)
+                await _anotar(
+                    str(job.get("user_id") or ""),
+                    str(job.get("thread_id") or ""),
+                    "nota",
+                    RESULTADO_FALLO,
+                )
+                cortados += 1
+            else:
+                en_cola.add(job_id)
+                logger.info("Job %s volvió a la cola tras un reinicio", job_id)
+            continue
+        if status != RUNNING:
             continue
         job["status"] = FAILED
         job["error"] = (
@@ -413,6 +466,7 @@ async def marcar_cortados(redis) -> int:
 
 
 def extraer_interrupt(snapshot) -> dict[str, Any] | None:
+    """Payload de la pausa humana, o None si el grafo no está esperando."""
     interrupciones = list(getattr(snapshot, "interrupts", None) or [])
     if not interrupciones:
         for tarea in getattr(snapshot, "tasks", ()) or ():
@@ -469,6 +523,7 @@ def _interrupt_en_resultado(resultado: Any) -> dict[str, Any] | None:
 
 
 async def procesar(redis, graph, job_id: str) -> None:
+    """Corre un job ya encolado. No invoca el grafo si el hilo fue eliminado."""
     job = await leer(redis, job_id)
     if job is None:
         logger.error("Job %s no está en Redis. No se procesa.", job_id)
@@ -482,6 +537,17 @@ async def procesar(redis, graph, job_id: str) -> None:
             job_id,
             status=FAILED,
             error="El job no tiene hilo o usuario.",
+            result=RESULTADO_FALLO,
+        )
+        return
+
+    if await _hilo_borrado(str(user_id), str(thread_id)):
+        logger.info("Job %s no corre: el hilo fue eliminado", job_id)
+        await actualizar(
+            redis,
+            job_id,
+            status=FAILED,
+            error="hilo eliminado",
             result=RESULTADO_FALLO,
         )
         return
@@ -558,6 +624,7 @@ async def procesar(redis, graph, job_id: str) -> None:
 
 
 async def worker_loop(redis, graph, stop: asyncio.Event) -> None:
+    """Saca ids de la cola hasta que ``stop`` se marca. Varios jobs a la vez."""
     concurrencia = max(1, int(os.getenv("WORKER_CONCURRENCY", "4")))
     semaforo = asyncio.Semaphore(concurrencia)
     tareas: set[asyncio.Task] = set()

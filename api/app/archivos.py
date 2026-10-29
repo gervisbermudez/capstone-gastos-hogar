@@ -41,6 +41,7 @@ def ruta_de_archivo(user_id: str, documento_id: str) -> Path:
 
 
 async def guardar_archivo(*, user_id: str, documento_id: str, datos: bytes) -> None:
+    """Escribe los bytes en ``archivos/{user_id}/{id}``. Un id que sale de esa carpeta falla."""
     ruta = ruta_de_archivo(user_id, documento_id)
 
     def _escribir() -> None:
@@ -51,6 +52,7 @@ async def guardar_archivo(*, user_id: str, documento_id: str, datos: bytes) -> N
 
 
 async def leer_archivo(user_id: str, documento_id: str) -> tuple[bytes, str] | None:
+    """Bytes y MIME, o None si no hay archivo o el id no es un segmento seguro."""
     try:
         ruta = ruta_de_archivo(user_id, documento_id)
     except ValueError:
@@ -89,6 +91,7 @@ def ruta_de_pendiente(user_id: str, job_id: str) -> Path:
 
 
 async def guardar_pendiente(*, user_id: str, job_id: str, datos: bytes) -> None:
+    """Guarda el upload hasta que la cola lo extrae. El id no puede salir de la carpeta."""
     ruta = ruta_de_pendiente(user_id, job_id)
 
     def _escribir() -> None:
@@ -99,6 +102,7 @@ async def guardar_pendiente(*, user_id: str, job_id: str, datos: bytes) -> None:
 
 
 async def leer_pendiente(user_id: str, job_id: str) -> bytes | None:
+    """Bytes del upload encolado, o None si no está o el id no es seguro."""
     try:
         ruta = ruta_de_pendiente(user_id, job_id)
     except ValueError:

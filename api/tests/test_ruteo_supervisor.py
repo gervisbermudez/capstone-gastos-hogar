@@ -37,7 +37,14 @@ from app.graph import config_hilo, construir_grafo, enrutar, estado_inicial
 from app.hitl import es_critica_texto
 from app.indexacion import indexar_comprobante
 from app.rag import filtro_pinecone, fusionar
-from app.supervisor import aplicar_decision, clasificar_pregunta, es_comparacion, nodo_supervisor
+from app.supervisor import (
+    RESPUESTA_SIN_DECISION,
+    aplicar_decision,
+    clasificar_pregunta,
+    es_comparacion,
+    nodo_sintesis,
+    nodo_supervisor,
+)
 from app.texto import extraer_texto
 from app.worker import HiloInvalido, es_del_usuario, reclamar_hilo
 
@@ -265,6 +272,66 @@ def test_tope_de_pasos() -> None:
     decision = nodo_supervisor({"pasos": 6, "messages": [], "contribuciones": []})
     assert decision["next_agent"] == "FINISH"
     assert decision["task_completed"] is True
+
+
+class _DecisionVacia:
+    def with_structured_output(self, esquema):
+        return self
+
+    async def ainvoke(self, mensajes):
+        return None
+
+
+class _DecisionInvalida:
+    def with_structured_output(self, esquema):
+        return self
+
+    async def ainvoke(self, mensajes):
+        raise ValueError("La respuesta no trae un objeto JSON")
+
+
+class _SintesisQueNoDebeCorrer:
+    async def ainvoke(self, prompt):
+        raise AssertionError("la respuesta directa no vuelve a llamar al modelo")
+
+
+def test_sin_decision_el_supervisor_cierra(monkeypatch) -> None:
+    monkeypatch.setattr("app.llm.armar_llm", lambda: _DecisionVacia())
+    decision = nodo_supervisor(
+        {
+            "messages": [HumanMessage(content="Hola funcionas")],
+            "contribuciones": [],
+            "pasos": 0,
+        }
+    )
+    assert decision["next_agent"] == "FINISH"
+    assert decision["task_completed"] is True
+    assert decision["respuesta_directa"] == RESPUESTA_SIN_DECISION
+
+
+def test_json_ausente_tambien_cierra(monkeypatch) -> None:
+    monkeypatch.setattr("app.llm.armar_llm", lambda: _DecisionInvalida())
+    decision = nodo_supervisor(
+        {
+            "messages": [HumanMessage(content="Hola funcionas")],
+            "contribuciones": [],
+            "pasos": 0,
+        }
+    )
+    assert decision["respuesta_directa"] == RESPUESTA_SIN_DECISION
+
+
+def test_la_sintesis_entrega_la_respuesta_directa(monkeypatch) -> None:
+    monkeypatch.setattr("app.llm.armar_llm", lambda: _SintesisQueNoDebeCorrer())
+    salida = nodo_sintesis(
+        {
+            "messages": [HumanMessage(content="Hola funcionas")],
+            "contribuciones": [],
+            "respuesta_directa": RESPUESTA_SIN_DECISION,
+        }
+    )
+    assert extraer_texto(salida["messages"][0]) == RESPUESTA_SIN_DECISION
+    assert salida["respuesta_directa"] == ""
 
 
 def test_enrutar_el_cierre_pasa_por_la_pausa() -> None:

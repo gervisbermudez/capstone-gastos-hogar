@@ -2,8 +2,26 @@
 
 import asyncio
 
+from langchain_core.messages import AIMessage
+from langchain_core.output_parsers.openai_tools import PydanticToolsParser
+from langchain_core.outputs import ChatGeneration, ChatResult
+from pydantic import BaseModel
+
 from app.agents.bucle import correr_async
+from app.llm import _anotar_reintento, _cerrar_resultado, _debe_reintentar, _nombre_tool
+from app.supervisor import DecisionSupervisor
 from app.texto import extraer_texto, objeto_json, separar_canal
+
+_PENSAMIENTO = "<|channel>thoughtwaiting for a<channel|>"
+
+
+class _Mini(BaseModel):
+    next: str
+
+
+def _resultado(texto: str, tools: list | None = None) -> ChatResult:
+    mensaje = AIMessage(content=texto, tool_calls=tools or [])
+    return ChatResult(generations=[ChatGeneration(message=mensaje)])
 
 
 def test_texto_sin_canal_queda_igual() -> None:
@@ -47,3 +65,38 @@ def test_el_loop_del_hilo_sigue_abierto() -> None:
 def test_objeto_json_ignora_llaves_dentro_de_un_string() -> None:
     texto = 'antes {"nota": "tiene } adentro", "monto": "1.00"} despues'
     assert objeto_json(texto) == '{"nota": "tiene } adentro", "monto": "1.00"}'
+
+
+def test_reintenta_solo_si_faltaba_una_decision() -> None:
+    assert _nombre_tool("auto") == ""
+    assert _nombre_tool("DecisionSupervisor") == "DecisionSupervisor"
+    assert _anotar_reintento(_resultado(_PENSAMIENTO), None, "DecisionSupervisor") is True
+    assert _debe_reintentar(_resultado("Hola, estoy."), None, "") is False
+    con_tool = _resultado(
+        _PENSAMIENTO,
+        [
+            {
+                "name": "DecisionSupervisor",
+                "args": {"next": "FINISH", "razon": "ok"},
+                "id": "1",
+                "type": "tool_call",
+            }
+        ],
+    )
+    assert _debe_reintentar(con_tool, None, "DecisionSupervisor") is False
+
+
+def test_el_json_despues_del_canal_queda_como_tool_call() -> None:
+    crudo = '<|channel>thoughtx<channel|>{"next": "FINISH", "razon": "saludo"}'
+    resultado = _cerrar_resultado(_resultado(crudo), None, "DecisionSupervisor")
+    parser = PydanticToolsParser(tools=[DecisionSupervisor], first_tool_only=True)
+    decision = parser.parse_result(resultado.generations)
+    assert decision is not None
+    assert decision.next == "FINISH"
+    assert decision.razon == "saludo"
+
+
+def test_el_esquema_parsea_el_json_despues_del_canal() -> None:
+    crudo = '<|channel>thoughtx<channel|>{"next": "FINISH"}'
+    resultado = _cerrar_resultado(_resultado(crudo), _Mini, "")
+    assert resultado.generations[0].message.additional_kwargs["parsed"].next == "FINISH"

@@ -1,25 +1,31 @@
 # Plan: hogares
 
-Diferido. Este diseño se ejecuta después del MVP. Hasta entonces no se escribe código de hogares, no se cambian rutas y no se toca `FUENTE-DE-LA-VERDAD.md`.
+Listo para ejecutar. Este pedido autoriza a actualizar `FUENTE-DE-LA-VERDAD.md` y `docs/documentacion-funcional.md`: el producto pasa de un libro por persona a un libro por hogar. El resto de lo que la fuente deja fuera (OAuth, recuperación de clave, panel de administración, más de un archivo, OCR propio, totales en el navegador) no se toca.
 
-Subordinado a `capstone/FUENTE-DE-LA-VERDAD.md`. Hoy ese archivo deja fuera de alcance los roles y el multi-usuario dentro de un mismo hogar. Ejecutar este plan exige, en ese momento, una autorización explícita en el chat para actualizar la fuente y `docs/documentacion-funcional.md`. Guardar este archivo no es esa autorización.
+La base es la app al cierre del commit de respaldo: el SQL vive en `api/app/repositorio/`, no en un `repositorio.py`. Hay categorías por persona, cargas en cola, canal y bandeja por usuario, cuenta editable y baja de cuenta.
 
-## Decisiones ya tomadas
+## Decisiones
 
-- Hogar y propiedad son la misma cosa: nombre y dirección opcional. Un usuario puede tener varios.
-- Cada hogar tiene un administrador y asociados. El asociado se agrega por el email de una cuenta que ya existe.
-- El asociado carga y confirma sus comprobantes. El administrador corrige, anula y ve el tablero, el export y el chat de todo el hogar.
-- Fuera de este corte: baja del hogar, más de un administrador, invitación a quien todavía no tiene cuenta, y que el asociado vea totales o el chat.
+- Hogar y propiedad son la misma cosa. Campos: `hogar_id`, `nombre`, `direccion` opcional, `creado_en`.
+- Un usuario puede tener varios hogares. En cada uno hay un solo `administrador` y cero o más `asociado`. El índice único parcial es `membresias(hogar_id) WHERE rol = 'administrador'`.
+- El asociado entra por el email de una cuenta que ya existe. 404 si no existe, 409 si ya es miembro.
+- El asociado carga y confirma sus comprobantes. Ve, descarga y descarta solo los suyos. No corrige, no anula, no borra confirmados, no ve totales, no exporta, no usa el chat y no administra miembros ni categorías.
+- El administrador ve borradores y confirmados de todos, con el email de quien cargó. Corrige, anula, borra, exporta y usa el chat sobre el libro del hogar. Edita nombre y dirección. Agrega y quita asociados. No puede quitarse a sí mismo.
+- Quien no es miembro recibe 404.
+- Fuera de este corte: baja del hogar, más de un administrador, invitación a quien no tiene cuenta, totales o chat para el asociado.
 
-## Conclusión
+## Qué cambió en la app y cómo entra en este plan
 
-Se puede hacer. El código actual no lo permite: cada fila de `api/app/db.py` apunta solo a `usuarios.user_id`. El resumen, el chat, el índice y la caché filtran por esa persona. En la interfaz no hay selector de hogar: `frontend/src/componentes/BarraLateral.tsx` muestra el email y cuatro secciones fijas.
-
-## Bloqueo de contrato
-
-`FUENTE-DE-LA-VERDAD.md` dice que una persona no ve comprobantes, totales ni conversaciones de otra, y deja fuera de alcance los roles y el multi-usuario dentro de un mismo hogar. `docs/documentacion-funcional.md` repite el aislamiento por persona y dice que no hay hogar compartido.
-
-Al retomar el plan, el primer paso es esa autorización. Sin ella, el código no se modifica.
+- `api/app/repositorio/` reexporta la API desde `__init__.py`. Hogares es un módulo nuevo, `repositorio/hogares.py`. No se recrea `repositorio.py`.
+- `categorias` es una tabla por `user_id`, con único `(user_id, nombre)`. Pasa a ser del hogar: `hogar_id` reemplaza a `user_id` como dueño, único `(hogar_id, nombre)`. Siguen valiendo las claves `servicios`, `expensas` y `alquiler` sin fila. Cualquier miembro puede listar. Crear, editar y borrar es del administrador. `_categoria_para_gasto` busca por `hogar_id`.
+- `POST /documentos` responde 202 y el worker de `cargas.py` termina el borrador. El job de Redis guarda `hogar_id` y `guardar_borrador` lo escribe en la fila.
+- `notificaciones` y el canal (`canal_usuario`) siguen siendo de la persona. Al confirmar un asociado, `emitir` también avisa al administrador de ese hogar. La bandeja no se filtra por hogar.
+- `mensajes` y `hilos_estado` ganan `hogar_id`. El chat y `POST /tasks` exigen rol administrador y guardan ese id en el job. Las tools leen el hogar del estado, nunca del modelo.
+- `usuarios.nombre`, cambio de email y clave, y `DELETE /auth/cuenta` ya existen. `crear_usuario` crea el hogar «Mi hogar» y la membresía de administrador. `eliminar_usuario` borra membresías de hogares donde está solo. Si es administrador y hay otros miembros, responde 409 y no borra la cuenta. Un asociado puede borrar su cuenta: sus comprobantes se van con él, como hoy.
+- La caché `gastos:resumen:{user_id}:…` pasa a `gastos:resumen:{hogar_id}:…`. Se invalida al confirmar, anular, corregir, borrar o asentar un pago en ese hogar.
+- El índice guarda `hogar_id` en la metadata y filtra por ese campo. La migración deja `indexado` en NULL. No reindexa dentro del `ALTER`.
+- La barra ya tiene Tablero, Registros, Categorías, Cargar, Chat y el menú de cuenta (`/opciones`). El selector de hogar va arriba de esas secciones. Categorías, Tablero y Chat se ocultan para el asociado. La gestión del hogar y de los miembros va en `/opciones#hogar`.
+- CORS con `FRONTEND_ORIGIN_EXTRA` y el reintento de JSON del modelo no se mezclan con hogares.
 
 ## Modelo
 
@@ -29,44 +35,56 @@ flowchart LR
   Hogar[Hogar]
   Membresia[Membresia]
   Comprobante[Comprobante]
+  Categoria[Categoria]
   Usuario --> Membresia
   Hogar --> Membresia
   Hogar --> Comprobante
+  Hogar --> Categoria
   Usuario -->|"quien lo cargo"| Comprobante
 ```
 
-Tablas nuevas en `db.py`, creadas en el primer `conectar()` como el resto del esquema:
+`borradores` y `comprobantes` ganan `hogar_id`. `user_id` sigue siendo quien subió el archivo. Los bytes siguen en `archivos/{user_id}/{documento_id}`.
 
-- `hogares`: `hogar_id`, `nombre`, `direccion` (opcional), `creado_en`.
-- `membresias`: `hogar_id`, `user_id`, `rol` (`administrador` o `asociado`). Clave primaria `(hogar_id, user_id)`. Un índice único parcial de SQLite garantiza un solo administrador por hogar.
+El hogar activo viaja en `sessionStorage` (`gastos.hogar_id`) y en el header `X-Hogar-Id` de las llamadas privadas. Si el header falta, se usa el hogar «Mi hogar» de esa persona, o el primero donde es administrador. En un documento que ya existe, el permiso se resuelve con el `hogar_id` de la fila.
 
-`borradores`, `comprobantes` y `mensajes` ganan `hogar_id`. `user_id` se queda: es quien subió el archivo o quien escribió en el chat. Los archivos siguen en `archivos/{user_id}/{documento_id}`; el permiso se resuelve al leer, sin mover bytes.
+La migración, dentro de `_migrar`, crea un hogar «Mi hogar» por cada usuario que no tenga membresía y copia ese id a sus borradores, comprobantes, mensajes, hilos y categorías. Las columnas entran nullable, se rellenan, y el repositorio rechaza escrituras nuevas sin hogar.
 
-Al registrarse, la persona recibe un hogar «Mi hogar» del que es administrador, así la carga actual sigue teniendo destino. La migración en `_migrar` hace lo mismo con los usuarios que ya existen y copia ese `hogar_id` a sus borradores y comprobantes. La columna nueva entra nullable, se rellena, y el repositorio rechaza escrituras sin hogar.
+## Contrato HTTP nuevo
 
-## Permisos
+- `GET /hogares` lista los hogares del token, con `rol`.
+- `POST /hogares` crea uno y deja al autor como administrador.
+- `PATCH /hogares/{id}` edita nombre y dirección. Solo administrador.
+- `GET /hogares/{id}/miembros` lista email, nombre y rol. Solo administrador.
+- `POST /hogares/{id}/miembros` body `{ "email": "..." }`. Solo administrador.
+- `DELETE /hogares/{id}/miembros/{user_id}` quita un asociado. Solo administrador. No quita al administrador.
 
-El hogar activo viaja en el cliente (`sessionStorage`) y la API lo exige en altas y listados. En un comprobante que ya existe, el hogar se lee de la fila: no se confía en el id que mande el navegador.
+`GET /resumen`, `GET /export`, `GET /documentos`, `POST /documentos` y `POST /tasks` usan el header. Un asociado en resumen, export o tasks recibe 403, porque el hogar le existe.
 
-- Quien no es miembro recibe 404, igual que hoy cuando un id es de otra persona (`api/tests/test_aislamiento.py`).
-- Asociado: sube, ve, descarga, descarta y confirma solo sus documentos de ese hogar. No corrige, no anula, no ve totales, no exporta, no usa el chat y no gestiona miembros. Si se equivocó después de confirmar, lo corrige el administrador.
-- Administrador: ve borradores y confirmados de todos los miembros, con el email de quien cargó. Corrige, anula, exporta y consulta el chat sobre el libro del hogar. Edita nombre y dirección. Agrega un asociado por email (404 si la cuenta no existe, 409 si ya está) y lo quita. No puede quitarse a sí mismo.
+## Firmas que comparten las partes
 
-El cupo diario de cargas y consultas sigue siendo por usuario. La caché de `api/app/cache_resumen.py` pasa de `gastos:resumen:{user_id}:…` a `gastos:resumen:{hogar_id}:…`, y se invalida cuando cualquiera confirma, anula o corrige en ese hogar.
+```python
+async def membresia(user_id: str, hogar_id: str) -> str | None
+async def hogar_por_defecto(user_id: str) -> str | None
 
-## Dónde se toca el código, al retomar
+async def guardar_borrador(*, user_id: str, hogar_id: str, texto: str, campos: dict, advertencias: list[str]) -> str
+async def listar_documentos(*, user_id: str, hogar_id: str, rol: str) -> list[dict]
+async def resumen(*, user_id: str, hogar_id: str, rol: str, desde: str, hasta: str) -> dict
+async def consultar_gastos(*, user_id: str, hogar_id: str, rol: str, categoria: str | None = None, periodo_desde: str | None = None, periodo_hasta: str | None = None, proveedor: str | None = None) -> dict
 
-- Datos y reglas: `api/app/db.py`, `api/app/repositorio.py`, `api/app/esquemas.py`. Rutas nuevas `GET/POST /hogares`, `PATCH /hogares/{id}`, `POST/DELETE /hogares/{id}/miembros`.
-- Documentos y resumen: `api/app/rutas_documentos.py`, `api/app/ingesta.py`. `consultar_gastos` y el resumen filtran por `hogar_id` y, para un asociado, también por su `user_id`.
-- Chat e índice: el job guarda `hogar_id` y solo lo crea un administrador. `api/app/rag.py` agrega `hogar_id` a la metadata y al filtro (hoy `filtro_pinecone` solo usa `user_id`). Los comprobantes ya indexados se marcan para reindexar, si no el investigador seguiría viendo solo los vectores viejos de una persona. `api/app/agents/analyst_agent.py` y `api/app/agents/research_agent.py` leen el hogar del estado, nunca del modelo.
-- Interfaz: `frontend/src/api/tipos.ts` y `frontend/src/api/cliente.ts`. Selector de hogar en la barra lateral, alta y edición, y alta de asociados por email. Con rol asociado, la barra deja visibles Cargar y Registros. La caché de resumen del navegador incluye el hogar activo.
-- Pruebas: dos hogares no se mezclan; el asociado no lee el documento de otro ni el resumen; el administrador ve la suma de ambos; un email inexistente no entra.
+async def indexar_comprobante(*, user_id: str, hogar_id: str, documento_id: str, texto: str, categoria: str, periodo: str, proveedor: str) -> None
+```
 
-## Orden al ejecutarlo
+`rol` es `administrador` o `asociado`. El administrador agrega sobre todo el hogar. El asociado agrega solo sus filas. `consultar_gastos` con rol asociado no se expone por el chat.
 
-1. Autorización explícita para actualizar `FUENTE-DE-LA-VERDAD.md` y `docs/documentacion-funcional.md`.
-2. Tablas `hogares` y `membresias`, `hogar_id` en borradores, comprobantes y mensajes, y la migración que crea «Mi hogar» para cada usuario existente.
-3. Rutas de hogares y miembros, y filtrar documentos, resumen, export, jobs y chat según rol y hogar activo.
-4. Caché de resumen y metadata RAG por `hogar_id`, y reindexar comprobantes ya confirmados.
-5. Selector, alta y edición de hogares, alta de asociados por email, y ocultar tablero y chat al asociado.
-6. Pruebas de aislamiento entre hogares y del límite del asociado frente al administrador.
+La clave de caché queda `clave(hogar_id, desde, hasta)`.
+
+## Partes y archivos
+
+Cada parte escribe solo sus archivos. Las pruebas de esa parte van en el mismo corte.
+
+1. Datos. `api/app/db.py`, `api/app/repositorio/hogares.py`, `api/app/repositorio/usuarios.py`, `api/app/repositorio/__init__.py`, modelos de hogar en `api/app/esquemas.py`, `api/app/rutas_hogares.py`, la línea que monta ese router en `api/app/main.py`, `api/tests/test_hogares.py`. También el párrafo de producto y el fuera de alcance en `FUENTE-DE-LA-VERDAD.md` y `docs/documentacion-funcional.md`.
+2. Documentos, categorías, cargas y resumen. `api/app/repositorio/documentos.py`, `api/app/repositorio/categorias.py`, `api/app/ingesta.py`, `api/app/rutas_documentos.py`, `api/app/rutas_categorias.py`, `api/app/cargas.py`, `api/app/cache_resumen.py`, el `GET /resumen` de `api/app/rutas_auth.py`, el aviso al administrador en la confirmación. Tests de aislamiento, categorías y extracción que estas firmas rompan.
+3. Chat e índice. `api/app/rag.py`, `api/app/indexacion.py`, `api/app/agents/`, `api/app/state.py`, `api/app/worker.py`, `api/app/graph.py` si el estado inicial necesita `hogar_id`, `POST /tasks` en `api/app/main.py`, `api/app/repositorio/hilos.py`, `api/app/rutas_hilos.py`. Tests de hilos y de flujo.
+4. Interfaz. `frontend/src/api/tipos.ts`, `frontend/src/api/cliente.ts`, `frontend/src/api/cacheResumen.ts`, `frontend/src/almacen.ts`, `frontend/src/sesion.tsx`, `frontend/src/componentes/BarraLateral.tsx`, `frontend/src/componentes/MarcoPrivado.tsx`, `frontend/src/pantallas/Opciones.tsx` y las pantallas que listan o cargan. El asociado no ve Tablero, Chat ni Categorías.
+
+Orden: 1 termina antes de 2 y 3. 2 y 3 no comparten archivos y pueden ir juntas. 4 empieza cuando 2 y 3 ya responden.

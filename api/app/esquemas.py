@@ -13,7 +13,9 @@ from __future__ import annotations
 import re
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_serializer
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_serializer, model_validator
+
+from .periodo import PERIODO as _PERIODO
 
 CAMPO_ARCHIVO = "archivo"
 TIPOS_ARCHIVO = ("jpeg", "png", "webp", "pdf")
@@ -27,7 +29,6 @@ EstadoTarea = Literal["PENDING", "RUNNING", "AWAITING_APPROVAL", "FAILED", "DONE
 Indexado = Literal["ok", "error", "omitido"]
 RolMensaje = Literal["persona", "asistente", "nota"]
 
-_PERIODO = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 _MONTO = re.compile(r"^\d+\.\d{2}$")
 
 
@@ -87,8 +88,37 @@ def _caracter_alias(caracter: str) -> bool:
     return caracter.isalpha() or caracter.isdecimal() or caracter in _ALIAS_SUELTOS
 
 
+_MAX_PASSWORD = 128
+_MIN_PASSWORD_NUEVA = 8
+_MAX_CONSULTA = 2000
+
+
+def _email_presente(valor: str) -> str:
+    texto = valor.strip()
+    if not texto:
+        raise ValueError("Falta el email")
+    return texto
+
+
+def _password_hasta(valor: str) -> str:
+    """Clave ya guardada: no vacía y con tope, para no hashear un payload enorme."""
+    if valor == "":
+        raise ValueError("Falta la contraseña")
+    if len(valor) > _MAX_PASSWORD:
+        raise ValueError("La contraseña supera los 128 caracteres")
+    return valor
+
+
+def _password_nueva(valor: str) -> str:
+    """Clave que se va a guardar. Pide un mínimo además del tope."""
+    texto = _password_hasta(valor)
+    if len(texto) < _MIN_PASSWORD_NUEVA:
+        raise ValueError("La contraseña tiene que tener al menos 8 caracteres")
+    return texto
+
+
 class Credenciales(_Entrada):
-    """Body de ``POST /auth/registro`` y ``POST /auth/login``."""
+    """Body de ``POST /auth/login``. La clave actual puede ser más corta que 8."""
 
     email: str
     password: str
@@ -96,17 +126,21 @@ class Credenciales(_Entrada):
     @field_validator("email")
     @classmethod
     def email_presente(cls, valor: str) -> str:
-        texto = valor.strip()
-        if not texto:
-            raise ValueError("Falta el email")
-        return texto
+        return _email_presente(valor)
 
     @field_validator("password")
     @classmethod
     def password_presente(cls, valor: str) -> str:
-        if valor == "":
-            raise ValueError("Falta la contraseña")
-        return valor
+        return _password_hasta(valor)
+
+
+class Registro(Credenciales):
+    """Body de ``POST /auth/registro``. Misma forma que el login, con clave nueva."""
+
+    @field_validator("password")
+    @classmethod
+    def password_nueva(cls, valor: str) -> str:
+        return _password_nueva(valor)
 
 
 class CambioNombre(_Entrada):
@@ -142,17 +176,12 @@ class CambioEmail(_Entrada):
     @field_validator("email")
     @classmethod
     def email_presente(cls, valor: str) -> str:
-        texto = valor.strip()
-        if not texto:
-            raise ValueError("Falta el email")
-        return texto
+        return _email_presente(valor)
 
     @field_validator("password")
     @classmethod
     def password_presente(cls, valor: str) -> str:
-        if valor == "":
-            raise ValueError("Falta la contraseña")
-        return valor
+        return _password_hasta(valor)
 
 
 class CambioPassword(_Entrada):
@@ -161,12 +190,15 @@ class CambioPassword(_Entrada):
     password_actual: str
     password_nueva: str
 
-    @field_validator("password_actual", "password_nueva")
+    @field_validator("password_actual")
     @classmethod
-    def password_presente(cls, valor: str) -> str:
-        if valor == "":
-            raise ValueError("Falta la contraseña")
-        return valor
+    def actual_presente(cls, valor: str) -> str:
+        return _password_hasta(valor)
+
+    @field_validator("password_nueva")
+    @classmethod
+    def nueva_presente(cls, valor: str) -> str:
+        return _password_nueva(valor)
 
 
 class BajaCuenta(_Entrada):
@@ -177,9 +209,7 @@ class BajaCuenta(_Entrada):
     @field_validator("password")
     @classmethod
     def password_presente(cls, valor: str) -> str:
-        if valor == "":
-            raise ValueError("Falta la contraseña")
-        return valor
+        return _password_hasta(valor)
 
 
 class Token(_Salida):
@@ -281,9 +311,10 @@ class CamposDocumento(_Salida):
 
 
 class DocumentoBorrador(_Salida):
-    """``POST /documentos`` → ``201``. El monto todavía no entra al libro.
+    """Detalle de un borrador en ``GET /documentos/{id}``.
 
-    ``creado_en`` es opcional y solo aparece en el detalle.
+    ``POST /documentos`` responde 202 con ``CargaAceptada``. El monto todavía
+    no entra al libro. ``creado_en`` es opcional y solo aparece en el detalle.
     """
 
     id: str = Field(min_length=1)
@@ -409,6 +440,12 @@ class RangoResumen(_Entrada):
     def periodo_ok(cls, valor: str) -> str:
         return _periodo(valor)
 
+    @model_validator(mode="after")
+    def rango_ordenado(self) -> RangoResumen:
+        if self.desde > self.hasta:
+            raise ValueError("desde tiene que ser anterior o igual a hasta")
+        return self
+
 
 class ConsultaTarea(_Entrada):
     """Body de ``POST /tasks``. ``thread_id`` null empieza un hilo."""
@@ -422,6 +459,8 @@ class ConsultaTarea(_Entrada):
         texto = valor.strip()
         if not texto:
             raise ValueError("La consulta está vacía")
+        if len(texto) > _MAX_CONSULTA:
+            raise ValueError("La consulta supera los 2000 caracteres")
         return texto
 
     @field_validator("thread_id")

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import logging
 import os
 from typing import Any
 
@@ -10,6 +12,12 @@ from langchain_core.outputs import ChatResult
 from pydantic import BaseModel
 
 from .texto import extraer_texto, objeto_json
+
+logger = logging.getLogger(__name__)
+
+# ``with_structured_output`` fuerza una herramienta concreta. ``auto`` y
+# ``required`` son modos del agente, no el nombre de un esquema.
+_MODOS_TOOL = {"auto", "none", "required", "any"}
 
 
 def describir_modelo() -> dict[str, str | None]:
@@ -55,6 +63,62 @@ def _formato_sin_parseo(schema: type[BaseModel]) -> dict[str, Any]:
     return {"type": "json_schema", "json_schema": funcion}
 
 
+def _nombre_tool(tool_choice: object) -> str:
+    """Nombre de la herramienta forzada. Un modo genérico no cuenta."""
+    if isinstance(tool_choice, str):
+        return "" if tool_choice in _MODOS_TOOL else tool_choice
+    if isinstance(tool_choice, dict):
+        funcion = tool_choice.get("function")
+        if isinstance(funcion, dict) and isinstance(funcion.get("name"), str):
+            nombre = funcion["name"]
+            return "" if nombre in _MODOS_TOOL else nombre
+    return ""
+
+
+def _preparar_pedido(kwargs: dict) -> tuple[object, dict, str]:
+    """Saca el esquema del pedido para parsearlo acá, no en el SDK."""
+    schema = kwargs.get("response_format")
+    tool = _nombre_tool(kwargs.get("tool_choice"))
+    if not _es_modelo(schema):
+        return None, kwargs, tool
+    return schema, {**kwargs, "response_format": _formato_sin_parseo(schema)}, tool
+
+
+def _sin_json(resultado: ChatResult) -> bool:
+    """No hay tool call ni un objeto JSON después de sacar el pensamiento."""
+    mensaje = resultado.generations[0].message
+    if getattr(mensaje, "tool_calls", None):
+        return False
+    try:
+        objeto_json(extraer_texto(mensaje))
+    except ValueError:
+        return True
+    return False
+
+
+def _debe_reintentar(resultado: ChatResult, schema: object, tool: str) -> bool:
+    if schema is None and not tool:
+        return False
+    return _sin_json(resultado)
+
+
+def _volcar_json(resultado: ChatResult, tool: str) -> None:
+    """Si el JSON quedó en el texto, lo deja como tool call para el parser."""
+    mensaje = resultado.generations[0].message
+    if getattr(mensaje, "tool_calls", None):
+        return
+    try:
+        texto = objeto_json(extraer_texto(mensaje))
+        datos = json.loads(texto)
+    except (ValueError, json.JSONDecodeError):
+        return
+    if not isinstance(datos, dict):
+        return
+    mensaje.tool_calls = [
+        {"name": tool, "args": datos, "id": "canal-json", "type": "tool_call"}
+    ]
+
+
 def _limpiar_resultado(resultado: ChatResult, schema: object) -> ChatResult:
     mensaje = resultado.generations[0].message
     visible = extraer_texto(mensaje)
@@ -69,7 +133,26 @@ def _limpiar_resultado(resultado: ChatResult, schema: object) -> ChatResult:
     return resultado
 
 
+def _cerrar_resultado(resultado: ChatResult, schema: object, tool: str) -> ChatResult:
+    resultado = _limpiar_resultado(resultado, schema)
+    if tool:
+        _volcar_json(resultado, tool)
+    return resultado
+
+
+def _anotar_reintento(resultado: ChatResult, schema: object, tool: str) -> bool:
+    if not _debe_reintentar(resultado, schema, tool):
+        return False
+    logger.warning("El modelo no devolvió JSON. Se reintenta una vez.")
+    return True
+
+
 def armar_llm() -> BaseChatModel:
+    """Cliente del proveedor de ``LLM_PROVIDER``.
+
+    OpenAI arma un ``httpx.AsyncClient`` propio. El singleton de LangChain
+    queda atado al loop de FastAPI y el worker, en otro hilo, hereda ese pool.
+    """
     proveedor = os.getenv("LLM_PROVIDER", "openai").strip().lower()
     if proveedor == "gemini":
         from langchain_google_genai import ChatGoogleGenerativeAI
@@ -82,9 +165,6 @@ def armar_llm() -> BaseChatModel:
     if _ChatOpenAI is None:
         _crear_chat(ChatOpenAI)
     assert _ChatOpenAI is not None
-    # El cliente async por defecto de LangChain es un singleton. La extracción
-    # lo usa en el loop de FastAPI y el worker, en otro hilo, hereda ese pool:
-    # el primer job falla con "bound to a different event loop".
     return _ChatOpenAI(
         model=_nombre_modelo("OPENAI_MODEL"),
         temperature=0,
@@ -100,23 +180,29 @@ def _crear_chat(base: type) -> None:
 
     class ChatConCanal(base):
         def _generate(self, messages, stop=None, run_manager=None, **kwargs):
-            schema = kwargs.get("response_format")
-            if _es_modelo(schema):
-                kwargs = {**kwargs, "response_format": _formato_sin_parseo(schema)}
-            return _limpiar_resultado(
-                super()._generate(messages, stop=stop, run_manager=run_manager, **kwargs),
-                schema,
-            )
+            schema, pedido, tool = _preparar_pedido(kwargs)
+
+            def pedir():
+                return super(ChatConCanal, self)._generate(
+                    messages, stop=stop, run_manager=run_manager, **pedido
+                )
+
+            resultado = pedir()
+            if _anotar_reintento(resultado, schema, tool):
+                resultado = pedir()
+            return _cerrar_resultado(resultado, schema, tool)
 
         async def _agenerate(self, messages, stop=None, run_manager=None, **kwargs):
-            schema = kwargs.get("response_format")
-            if _es_modelo(schema):
-                kwargs = {**kwargs, "response_format": _formato_sin_parseo(schema)}
-            return _limpiar_resultado(
-                await super()._agenerate(
-                    messages, stop=stop, run_manager=run_manager, **kwargs
-                ),
-                schema,
-            )
+            schema, pedido, tool = _preparar_pedido(kwargs)
+
+            async def pedir():
+                return await super(ChatConCanal, self)._agenerate(
+                    messages, stop=stop, run_manager=run_manager, **pedido
+                )
+
+            resultado = await pedir()
+            if _anotar_reintento(resultado, schema, tool):
+                resultado = await pedir()
+            return _cerrar_resultado(resultado, schema, tool)
 
     _ChatOpenAI = ChatConCanal

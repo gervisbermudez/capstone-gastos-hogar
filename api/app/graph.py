@@ -21,6 +21,7 @@ from .supervisor import nodo_sintesis, nodo_supervisor
 
 
 def enrutar(state: AgentState) -> Literal["investigador", "analista", "evaluar_criticidad"]:
+    """Especialista o cierre. ``FINISH`` y un paso desconocido van a criticidad."""
     if state.get("next_agent") == "FINISH" or state.get("task_completed"):
         return "evaluar_criticidad"
     destino = state.get("next_agent")
@@ -30,12 +31,14 @@ def enrutar(state: AgentState) -> Literal["investigador", "analista", "evaluar_c
 
 
 def enrutar_tras_criticidad(state: AgentState) -> Literal["aprobacion_humana", "sintesis"]:
+    """Una acción con efecto pausa. Una lectura sigue a la síntesis."""
     if state.get("critica"):
         return "aprobacion_humana"
     return "sintesis"
 
 
 def construir_grafo(checkpointer) -> CompiledStateGraph:
+    """Compila el grafo. El checkpointer es el de Redis y es síncrono."""
     grafo: StateGraph = StateGraph(AgentState)
     grafo.add_node("supervisor", nodo_supervisor)
     grafo.add_node("investigador", nodo_investigador)
@@ -72,6 +75,7 @@ def construir_grafo(checkpointer) -> CompiledStateGraph:
 
 
 def estado_inicial(pregunta: str, user_id: str) -> AgentState:
+    """Estado de un turno nuevo. El ``user_id`` lo pone el sistema, no el modelo."""
     return {
         "messages": [HumanMessage(content=pregunta)],
         "next_agent": None,

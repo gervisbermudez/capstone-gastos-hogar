@@ -51,6 +51,12 @@ def test_pago_chico_no_dispara_el_umbral() -> None:
     assert critica is False
 
 
+def test_sin_decision_no_pide_aprobacion() -> None:
+    estado = _estado("Asentá el pago de las expensas de marzo por 2500 USD")
+    estado["respuesta_directa"] = "No pude resolver esa consulta."
+    assert nodo_evaluar_criticidad(estado)["critica"] is False
+
+
 def _grafo(avisos: Path):
     import app.hitl as hitl
 

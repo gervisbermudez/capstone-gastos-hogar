@@ -1,4 +1,4 @@
-"""Tope diario en UTC. Redis INCR + expire. Si contar falla, se deja pasar."""
+"""Tope diario en UTC. Redis INCR y EXPIRE NX. Si contar falla, se deja pasar."""
 
 from __future__ import annotations
 
@@ -45,6 +45,7 @@ async def exigir_cupo(redis, user_id: str, tipo: str) -> None:
     """Cuenta una carga o una consulta. 429 si pasa el tope del día UTC.
 
     ``redis`` en None, o un INCR que revienta, se loguea y no frena el pedido.
+    El EXPIRE usa NX en cada conteo: si el primero falló, el siguiente pone el TTL.
     """
     if tipo not in _DETALLES or not user_id:
         return
@@ -60,8 +61,7 @@ async def exigir_cupo(redis, user_id: str, tipo: str) -> None:
         logger.warning("No se pudo contar el tope de %s: %s", tipo, type(exc).__name__)
         return
     try:
-        if valor == 1:
-            await redis.expire(clave, _segundos_hasta_medianoche_utc())
+        await redis.expire(clave, _segundos_hasta_medianoche_utc(), nx=True)
     except Exception as exc:
         logger.warning("No se pudo expirar el tope de %s: %s", tipo, type(exc).__name__)
     if valor > limite:

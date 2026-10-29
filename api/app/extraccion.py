@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from .esquemas import CamposDocumento
 from .llm import armar_llm
+from .periodo import MESES as _MESES
 
 try:
     import pymupdf
@@ -44,21 +45,6 @@ _MARCAS_PROHIBIDAS = (
     "data:image",
     "%pdf",
 )
-_MESES = {
-    "enero": "01",
-    "febrero": "02",
-    "marzo": "03",
-    "abril": "04",
-    "mayo": "05",
-    "junio": "06",
-    "julio": "07",
-    "agosto": "08",
-    "septiembre": "09",
-    "setiembre": "09",
-    "octubre": "10",
-    "noviembre": "11",
-    "diciembre": "12",
-}
 _MONEDA = re.compile(r"(?i)\b(?:ars|usd|eur)\b")
 
 

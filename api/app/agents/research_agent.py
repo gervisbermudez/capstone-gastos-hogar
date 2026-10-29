@@ -2,21 +2,20 @@
 
 from __future__ import annotations
 
-import re
 from typing import Literal
 
 from langchain.agents import create_agent
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.tools import tool
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from ..periodo import PERIODO as _PERIODO
 from ..rag import buscar
 from ..state import AgentState, contexto_turno
-from ..texto import extraer_texto
 from .bucle import correr_async, usuario_del_turno
+from .mensajes import lineas_tool, ultima_respuesta
 
 _reemplazo = None
-_PERIODO = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 
 _INSTRUCCION = (
     "Buscá en el texto de los comprobantes con buscar_comprobantes. "
@@ -131,23 +130,6 @@ def _agente_investigador():
     )
 
 
-def _ultima_respuesta(mensajes: list) -> str:
-    for mensaje in reversed(mensajes):
-        if isinstance(mensaje, AIMessage):
-            return extraer_texto(mensaje)
-    return extraer_texto(mensajes[-1]) if mensajes else ""
-
-
-def _lineas_tool(mensajes: list, nombre: str) -> list[str]:
-    lineas: list[str] = []
-    for mensaje in mensajes:
-        if isinstance(mensaje, ToolMessage) and mensaje.name == nombre:
-            texto = extraer_texto(mensaje)
-            if texto:
-                lineas.append(texto)
-    return lineas
-
-
 def nodo_investigador(state: AgentState) -> dict:
     """Busca el texto del comprobante. El ``user_id`` sale del estado, no del modelo."""
 
@@ -163,8 +145,8 @@ def nodo_investigador(state: AgentState) -> dict:
 
     resultado = correr_async(_correr())
     mensajes = resultado["messages"]
-    respuesta = _ultima_respuesta(mensajes)
-    for linea in _lineas_tool(mensajes, "buscar_comprobantes"):
+    respuesta = ultima_respuesta(mensajes)
+    for linea in lineas_tool(mensajes, "buscar_comprobantes"):
         if linea not in respuesta:
             respuesta = respuesta.rstrip() + "\n" + linea
     if "[comprobante" not in respuesta.lower() and "no se encontró" not in respuesta.lower():

@@ -27,7 +27,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from . import repositorio
 from .auth import usuario_actual, usuario_de_saludo
 from .cache_resumen import publicar_redis
-from .canal import Sala, origen_del_socket
+from .canal import Sala, origen_del_socket, origenes_permitidos
 from .cargas import marcar_cortadas, worker_cargas
 from .cupo import exigir_cupo
 from .esquemas import (
@@ -152,11 +152,8 @@ app = FastAPI(
 
 
 def _origenes_permitidos() -> list[str]:
-    """Un solo origen, el de FRONTEND_ORIGIN. Vacío o * no habilita a nadie."""
-    origen = os.getenv("FRONTEND_ORIGIN", "").strip().rstrip("/")
-    if not origen or origen == "*":
-        return []
-    return [origen]
+    """FRONTEND_ORIGIN y, si está definido, FRONTEND_ORIGIN_EXTRA."""
+    return origenes_permitidos()
 
 
 app.add_middleware(

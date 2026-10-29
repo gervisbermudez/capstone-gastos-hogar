@@ -17,6 +17,7 @@ _lista = False
 
 
 def init_observability() -> None:
+    """Arranca Phoenix o LangSmith una sola vez por proceso."""
     global _lista
     if _lista:
         return

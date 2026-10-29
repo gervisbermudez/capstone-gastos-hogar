@@ -17,27 +17,13 @@ from pathlib import Path
 from langgraph.types import interrupt
 
 from .agents.bucle import correr_async
+from .periodo import MESES as _MESES
 from .state import AgentState, pregunta_actual
 from .texto import sin_cita_comprobante
 
 UMBRAL_MONTO = 1000
 AVISOS = Path(__file__).resolve().parent.parent / "avisos" / "rrhh.jsonl"
 _candado_avisos = threading.Lock()
-_MESES = {
-    "enero": "01",
-    "febrero": "02",
-    "marzo": "03",
-    "abril": "04",
-    "mayo": "05",
-    "junio": "06",
-    "julio": "07",
-    "agosto": "08",
-    "septiembre": "09",
-    "setiembre": "09",
-    "octubre": "10",
-    "noviembre": "11",
-    "diciembre": "12",
-}
 
 # Frases que piden un efecto fuera del grafo. Una pregunta de lectura
 # ("¿cuánto pagué de expensas?") no las contiene.
@@ -98,10 +84,18 @@ def es_critica_texto(pregunta: str) -> tuple[bool, str]:
 
 
 def es_critica(state: AgentState) -> tuple[bool, str]:
+    """Igual que ``es_critica_texto`` sobre la pregunta de este turno."""
     return es_critica_texto(pregunta_actual(state))
 
 
 def nodo_evaluar_criticidad(state: AgentState) -> dict:
+    """Marca si el cierre necesita un humano. Una respuesta directa no pausa."""
+    if (state.get("respuesta_directa") or "").strip():
+        return {
+            "critica": False,
+            "motivo_critico": "No hubo decisión del modelo.",
+            "aprobado": None,
+        }
     critica, motivo = es_critica(state)
     return {"critica": critica, "motivo_critico": motivo, "aprobado": None}
 
@@ -191,6 +185,7 @@ def _crear_borrador(pregunta: str, user_id: str) -> dict:
 
 
 def decision_aprobada(decision: object) -> bool:
+    """True si la reanudación aprueba. Acepta un bool, un dict o un sí."""
     if isinstance(decision, bool):
         return decision
     if isinstance(decision, dict):
@@ -200,6 +195,7 @@ def decision_aprobada(decision: object) -> bool:
 
 
 def registrar_aviso(mensaje: str, *, user_id: str = "") -> Path:
+    """Anexa el aviso al jsonl. No entra al libro ni a la bandeja."""
     AVISOS.parent.mkdir(parents=True, exist_ok=True)
     linea = json.dumps(
         {

@@ -15,6 +15,7 @@ from .archivos import borrar_pendiente, leer_pendiente
 from .canal import emitir
 from .extraccion import DETALLE_MODELO, ArchivoRechazado, ErrorDeModelo
 from .ingesta import recibir
+from .json_redis import decodificar
 
 logger = logging.getLogger(__name__)
 
@@ -84,12 +85,9 @@ async def guardar(redis, job: dict[str, Any]) -> None:
 
 
 async def leer(redis, job_id: str) -> dict[str, Any] | None:
+    """Estado de la carga, o None si no está o el JSON de Redis no se puede leer."""
     crudo = await redis.get(data_key(job_id))
-    if not crudo:
-        return None
-    if isinstance(crudo, bytes):
-        crudo = crudo.decode()
-    return json.loads(crudo)
+    return decodificar(crudo, contexto=data_key(job_id))
 
 
 async def _avisar(redis, job: dict[str, Any]) -> None:
@@ -196,11 +194,9 @@ async def marcar_cortadas(redis) -> int:
         en_cola.add(str(item))
     async for clave in redis.scan_iter(match=f"{DATA_PREFIX}*"):
         crudo = await redis.get(clave)
-        if not crudo:
+        job = decodificar(crudo, contexto=str(clave))
+        if job is None:
             continue
-        if isinstance(crudo, bytes):
-            crudo = crudo.decode()
-        job = json.loads(crudo)
         fase = job.get("fase")
         job_id = str(job.get("job_id") or "")
         if fase == RECIBIDA:

@@ -19,6 +19,7 @@ from .esquemas import (
     CambioNombre,
     CambioPassword,
     Credenciales,
+    Registro,
     ModeloActivo,
     RangoResumen,
     Resumen,
@@ -49,7 +50,7 @@ def _aviso(mensaje: str, exc: Exception) -> None:
 
 
 @router.post("/auth/registro", response_model=Token, status_code=201)
-async def registro(body: Credenciales) -> Token:
+async def registro(body: Registro) -> Token:
     try:
         password_hash = await asyncio.to_thread(auth.hashear, body.password)
         user_id = await repositorio.crear_usuario(body.email, password_hash)

@@ -101,7 +101,7 @@ class RedisMemoria:
         self.datos[nombre] = str(valor)
         return valor
 
-    async def expire(self, nombre: str, segundos: int) -> bool:
+    async def expire(self, nombre: str, segundos: int, nx: bool = False) -> bool:
         return True
 
     async def scan_iter(self, match: str | None = None):
