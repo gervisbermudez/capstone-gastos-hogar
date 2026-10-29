@@ -98,9 +98,13 @@ export function ListaChats({
         onClick={onNuevo}
         css={{
           color: "fg",
-          borderColor: "borde",
+          borderColor: "rgba(58, 57, 52, 0.35)",
           bg: "bg.panel",
-          _hover: { bg: "bg.hover", color: "fg" },
+          _hover: { bg: "bg.hover", color: "fg", borderColor: "rgba(58, 57, 52, 0.35)" },
+          _dark: {
+            borderColor: "rgba(243, 239, 228, 0.45)",
+            _hover: { borderColor: "rgba(243, 239, 228, 0.45)" },
+          },
         }}
       >
         Chat nuevo

@@ -27,6 +27,7 @@ import {
 import { toaster } from "../avisos"
 import { Cargando } from "../componentes/Cargando"
 import {
+  CampoProveedor,
   ChipArchivo,
   FilaDato,
   IconoArchivo,
@@ -49,16 +50,34 @@ import { leerVista } from "../vistas"
 
 const SOMBRA = "0 12px 40px rgba(28, 27, 23, 0.06)"
 
+const bordeControl = "rgba(58, 57, 52, 0.35)"
+const bordeControlOscuro = "rgba(243, 239, 228, 0.45)"
+
 const botonFantasma = {
   color: "fg",
   _hover: { bg: "bg.hover", color: "fg" },
 } as const
 
+const botonVolver = {
+  color: "fg",
+  bg: "bg.panel",
+  borderColor: bordeControl,
+  _hover: { bg: "bg.hover", color: "fg", borderColor: bordeControl },
+  _dark: {
+    borderColor: bordeControlOscuro,
+    _hover: { borderColor: bordeControlOscuro },
+  },
+} as const
+
 const botonContorno = {
   color: "fg",
-  borderColor: "borde",
+  borderColor: bordeControl,
   bg: "bg.panel",
-  _hover: { bg: "bg.hover", color: "fg" },
+  _hover: { bg: "bg.hover", color: "fg", borderColor: bordeControl },
+  _dark: {
+    borderColor: bordeControlOscuro,
+    _hover: { borderColor: bordeControlOscuro },
+  },
 } as const
 
 const botonSolido = {
@@ -144,10 +163,6 @@ function datosListos(form: BorradorFactura): number {
     form.numero_comprobante.trim() !== "",
   ]
   return presentes.filter(Boolean).length
-}
-
-function idCorto(id: string): string {
-  return id.slice(-8)
 }
 
 function Nota({ children, fondo, color = "marca.carbon" }: { children: string; fondo: string; color?: string }) {
@@ -288,7 +303,7 @@ export function Revision() {
       } else {
         toaster.create({ title: "Comprobante confirmado", type: "success" })
       }
-      navigate("/")
+      navigate("/registros")
     } catch (error) {
       if (error instanceof ErrorApi) {
         setErrores(erroresDeApi(error.campos))
@@ -309,7 +324,7 @@ export function Revision() {
     try {
       await cliente.descartar(documento.id)
       toaster.create({ title: "Borrador descartado", type: "success" })
-      navigate("/")
+      navigate("/registros")
     } catch (error) {
       setFalla(error instanceof ErrorApi ? error.message : "No se pudo descartar el borrador.")
     } finally {
@@ -366,7 +381,7 @@ export function Revision() {
     try {
       await cliente.anular(documento.id)
       toaster.create({ title: "Comprobante anulado", type: "success" })
-      navigate("/")
+      navigate("/registros")
     } catch (error) {
       setFalla(error instanceof ErrorApi ? error.message : "No se pudo anular el comprobante.")
     } finally {
@@ -386,11 +401,11 @@ export function Revision() {
         <Button
           asChild
           alignSelf="flex-start"
-          variant="ghost"
+          variant="outline"
           borderRadius="full"
-          css={botonFantasma}
+          css={botonVolver}
         >
-          <Link to="/">Volver al tablero</Link>
+          <Link to="/registros">Volver a registros</Link>
         </Button>
       </Stack>
     )
@@ -441,8 +456,8 @@ export function Revision() {
   return (
     <Stack gap={{ base: 5, md: 6 }}>
       <Stack gap={2}>
-        <Button asChild variant="ghost" alignSelf="flex-start" borderRadius="full" css={botonFantasma}>
-          <Link to="/">Volver al tablero</Link>
+        <Button asChild variant="outline" alignSelf="flex-start" borderRadius="full" css={botonVolver}>
+          <Link to="/registros">Volver a registros</Link>
         </Button>
         <Heading
           as="h1"
@@ -455,13 +470,6 @@ export function Revision() {
         >
           {titulo}
         </Heading>
-        <Text color="fg.muted" fontSize="sm">
-          {proveedor ? "Revisar comprobante" : "Comprobante"}
-          <Text as="span" color="fg.muted">
-            {" "}
-            · {idCorto(documento.id)}
-          </Text>
-        </Text>
       </Stack>
 
       {falla ? (
@@ -491,18 +499,24 @@ export function Revision() {
                 >
                   {formatMonto(form.monto, moneda)}
                 </Text>
-                <Text color="fg.muted" fontSize="sm">
-                  {formatPeriodo(form.periodo)}
-                  {form.categoria ? ` · ${categoriaTexto}` : ""}
-                </Text>
+                {editando ? null : (
+                  <Text color="fg.muted" fontSize="sm">
+                    {formatPeriodo(form.periodo)}
+                    {form.categoria ? ` · ${categoriaTexto}` : ""}
+                  </Text>
+                )}
                 <Flex gap={2} wrap="wrap">
-                  <Pastilla tono={form.categoria ? "sol" : "gris"}>{categoriaTexto}</Pastilla>
+                  {editando ? null : (
+                    <Pastilla tono={form.categoria ? "sol" : "gris"}>{categoriaTexto}</Pastilla>
+                  )}
                   <Pastilla tono={estado.tono}>{estado.texto}</Pastilla>
-                  <Pastilla tono="gris">{moneda}</Pastilla>
+                  {editando ? null : <Pastilla tono="gris">{moneda}</Pastilla>}
                 </Flex>
-                <Text color="fg.muted" fontSize="xs">
-                  {datosListos(form)} de 6 datos
-                </Text>
+                {editando ? null : (
+                  <Text color="fg.muted" fontSize="xs">
+                    {datosListos(form)} de 6 datos
+                  </Text>
+                )}
               </Stack>
             </Card.Body>
           </Card.Root>
@@ -586,6 +600,7 @@ export function Revision() {
         </Stack>
 
         <Stack gap={4}>
+          {editando ? null : (
           <Card.Root bg="bg.panel" borderWidth="0" borderRadius="20px" boxShadow={SOMBRA} _dark={{ borderWidth: "1px", borderColor: "borde" }}>
             <Card.Header>
               <Flex justify="space-between" align="center" gap={3} wrap="wrap">
@@ -638,6 +653,7 @@ export function Revision() {
               ) : null}
             </Card.Body>
           </Card.Root>
+          )}
 
           <Card.Root bg="bg.panel" borderWidth="0" borderRadius="20px" boxShadow={SOMBRA} _dark={{ borderWidth: "1px", borderColor: "borde" }}>
             <Card.Header>
@@ -713,7 +729,7 @@ export function Revision() {
                       <>
                         <Field.Root invalid={Boolean(errores.proveedor)}>
                           <Field.Label>Proveedor</Field.Label>
-                          <Input value={form.proveedor} onChange={(event) => actualizar("proveedor", event.target.value)} />
+                          <CampoProveedor valor={form.proveedor} onChange={(valor) => actualizar("proveedor", valor)} />
                           {errores.proveedor ? <Field.ErrorText color="estadoTexto.falla">{errores.proveedor}</Field.ErrorText> : null}
                         </Field.Root>
                         <Field.Root invalid={Boolean(errores.categoria)}>
@@ -822,6 +838,12 @@ export function Revision() {
                     ) : null}
                   </Stack>
                 </form>
+                <Stack gap={3} mt={4} pt={4} borderTopWidth="1px" borderColor="borde">
+                  <FilaDato icono={<IconoPersona />} etiqueta="Cargado por" valor={email?.trim() || "Tu cuenta"} />
+                  <FilaDato icono={<IconoFecha />} etiqueta={etiquetaFecha} valor={formatFecha(marcaTiempo)} />
+                  <FilaDato icono={<IconoBusqueda />} etiqueta="Búsqueda" valor={etiquetaBusqueda(documento)} />
+                  <FilaDato icono={<IconoArchivo />} etiqueta="Archivo" valor={textoArchivo} />
+                </Stack>
               </Card.Body>
             </Card.Root>
           ) : null}

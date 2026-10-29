@@ -6,8 +6,8 @@ import { BarraLateral, type Seccion } from "./BarraLateral"
 import { Cargando } from "./Cargando"
 
 function seccionActiva(pathname: string): Seccion | null {
-  if (pathname === "/" || pathname.startsWith("/documentos")) return "tablero"
-  if (pathname === "/registros") return "registros"
+  if (pathname === "/") return "tablero"
+  if (pathname === "/registros" || pathname.startsWith("/documentos")) return "registros"
   if (pathname === "/categorias") return "categorias"
   if (pathname === "/cargar" || pathname.startsWith("/cargar")) return "cargar"
   if (pathname === "/chat" || pathname.startsWith("/chat")) return "chat"
