@@ -19,7 +19,6 @@ El tablero y el chat de esta ola no agregan llamadas a rutas nuevas. No tocan `c
 
 - Montos visibles con `Intl` en `es-AR` (`18500.50` + `ARS` → `$ 18.500,50`). Los gráficos siguen leyendo `total` de `GET /resumen`. No se suman montos en el navegador. Solo se formatea el texto.
 - Badges «Borrador» y «Confirmado».
-- Columna de vencimiento. Si la fecha está a 7 días o ya pasó, un aviso en el tablero con el proveedor. Comparar fechas no es calcular totales.
 - Filtro de categoría solo sobre la lista de confirmados. Los gráficos quedan del período completo, con una frase que lo dice.
 - Vacíos con acción que lleva a `#cargar-comprobante`.
 - Si no hay borradores ni confirmados, tres pasos: cargar, revisar, preguntar.
@@ -79,7 +78,7 @@ Pedido: ...
 - `POST /documentos/{id}/corregir` con una `Factura` → actualiza el confirmado y guarda el antes y el después. No recalcula en el cliente.
 - `GET /hilos` → `{ "items": [ { "thread_id", "titulo", "actualizado_en" } ] }` de esa persona, máximo 30.
 - `GET /hilos/{thread_id}` → `{ "thread_id", "mensajes": [ { "rol", "texto", "creado_en" } ] }`. `404` si el hilo es de otra persona. `rol` es `persona`, `asistente` o `nota`.
-- `GET /export?desde=YYYY-MM&hasta=YYYY-MM` → CSV de confirmados no anulados. Columnas: id, proveedor, categoria, periodo, monto, moneda, vencimiento, numero_comprobante.
+- `GET /export?desde=YYYY-MM&hasta=YYYY-MM` → CSV de confirmados no anulados. Columnas: id, proveedor, categoria, periodo, monto, moneda, numero_comprobante.
 
 ### Campos opcionales
 

@@ -32,7 +32,7 @@ Tablas:
 | --- | --- | --- |
 | `usuarios` | `user_id` TEXT PK, `email` TEXT UNIQUE COLLATE NOCASE, `password_hash` TEXT | Login. El email se guarda en minúsculas, sin espacios. |
 | `borradores` | `id` TEXT PK, `user_id` TEXT FK, `texto` TEXT, `campos_json` TEXT, `advertencias_json` TEXT, `creado_en` TEXT | Extracción sin efecto en los totales. |
-| `comprobantes` | `id` TEXT PK, `user_id` TEXT FK, `proveedor`, `categoria`, `periodo` (`YYYY-MM`), `monto_centavos` INTEGER, `moneda`, `vencimiento`, `numero_comprobante`, `texto`, `confirmado_en` | Libro. El `SUM` usa `monto_centavos`. |
+| `comprobantes` | `id` TEXT PK, `user_id` TEXT FK, `proveedor`, `categoria`, `periodo` (`YYYY-MM`), `monto_centavos` INTEGER, `moneda`, `numero_comprobante`, `texto`, `confirmado_en` | Libro. El `SUM` usa `monto_centavos`. |
 
 Índices: `(user_id, periodo)` y `(user_id, categoria)` en `comprobantes`, y `(user_id)` en `borradores`. Toda sentencia lleva `user_id` en el `WHERE`, con parámetros `?`.
 

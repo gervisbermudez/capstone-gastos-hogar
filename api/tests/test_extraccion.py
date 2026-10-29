@@ -134,7 +134,6 @@ from app.extraccion import (
     LecturaFactura,
     detectar_tipo,
     extraer,
-    normalizar_fecha,
     normalizar_monto,
     normalizar_periodo,
 )
@@ -355,12 +354,6 @@ def test_normalizar_periodo(crudo, esperado):
     assert normalizar_periodo(crudo) == esperado
 
 
-def test_normalizar_fecha():
-    assert normalizar_fecha("2026-03-15") == "2026-03-15"
-    assert normalizar_fecha("15/03/2026") == "2026-03-15"
-    assert normalizar_fecha("31/02/2026") is None
-
-
 def test_preparacion_fuera_del_event_loop(monkeypatch, doble):
     vistos: list[str] = []
     real = asyncio.to_thread
@@ -441,7 +434,6 @@ def test_lectura_desprolija_se_normaliza_y_lo_invalido_se_advierte(cuentas, dobl
         categoria="Servicios",
         periodo="marzo de 2026",
         monto="$ 18.500,50",
-        vencimiento="15/03/2026",
         transcripcion=MARCA_VISION,
     )
     with cliente_de(cuentas["ada"], "ada@example.com") as ada:
@@ -451,7 +443,7 @@ def test_lectura_desprolija_se_normaliza_y_lo_invalido_se_advierte(cuentas, dobl
     assert campos["categoria"] == "servicios"
     assert campos["periodo"] == "2026-03"
     assert campos["monto"] == "18500.50"
-    assert campos["vencimiento"] == "2026-03-15"
+    assert "vencimiento" not in campos
     assert bien.json()["advertencias"] == []
 
     doble.lectura = lectura_completa(monto="18500.505", categoria="luz", proveedor="")
@@ -776,7 +768,7 @@ def test_export_incluye_el_proveedor(cuentas, monkeypatch):
         texto = respuesta.content.decode("utf-8")
         assert (
             texto.splitlines()[0]
-            == "id,proveedor,categoria,periodo,monto,moneda,vencimiento,numero_comprobante"
+            == "id,proveedor,categoria,periodo,monto,moneda,numero_comprobante"
         )
         assert "Edenor" in texto
         assert primero in texto

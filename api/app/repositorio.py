@@ -10,14 +10,14 @@ import io
 import json
 import re
 import uuid
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal
 
 from . import db
+from .texto import sin_cita_comprobante
 
 _PERIODO = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 _MONTO = re.compile(r"^\d+\.\d{2}$")
-_FECHA = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _CATEGORIAS = {"servicios", "expensas", "alquiler"}
 _CLAVES_CAMPOS = (
     "proveedor",
@@ -25,7 +25,6 @@ _CLAVES_CAMPOS = (
     "periodo",
     "monto",
     "moneda",
-    "vencimiento",
     "numero_comprobante",
 )
 
@@ -88,19 +87,6 @@ def _opcional(valor: object) -> str | None:
     return texto or None
 
 
-def _vencimiento(valor: object) -> str | None:
-    texto = _opcional(valor)
-    if texto is None:
-        return None
-    if _FECHA.fullmatch(texto) is None:
-        raise ValueError("vencimiento inválido")
-    try:
-        date.fromisoformat(texto)
-    except ValueError as exc:
-        raise ValueError("vencimiento inválido") from exc
-    return texto
-
-
 def _campos_desde_fila(row) -> dict:
     campos = {
         "proveedor": row["proveedor"],
@@ -109,8 +95,6 @@ def _campos_desde_fila(row) -> dict:
         "monto": _monto(int(row["monto_centavos"])),
         "moneda": row["moneda"],
     }
-    if row["vencimiento"]:
-        campos["vencimiento"] = row["vencimiento"]
     if row["numero_comprobante"]:
         campos["numero_comprobante"] = row["numero_comprobante"]
     return campos
@@ -118,7 +102,7 @@ def _campos_desde_fila(row) -> dict:
 
 _COLUMNAS_PUBLICAS = """
     id, proveedor, categoria, periodo, monto_centavos, moneda,
-    vencimiento, numero_comprobante, anulado, indexado, cambios_json
+    numero_comprobante, anulado, indexado, cambios_json
 """
 _NO_ANULADO = "COALESCE(anulado, 0) = 0"
 _ROLES_HILO = {"persona", "asistente", "nota"}
@@ -143,6 +127,8 @@ def _leer_cambios(crudo: object) -> list[dict]:
     cambios = []
     for item in datos:
         if not isinstance(item, dict) or not isinstance(item.get("campo"), str):
+            continue
+        if item["campo"] == "vencimiento":
             continue
         antes = item.get("antes")
         despues = item.get("despues")
@@ -192,14 +178,13 @@ def _campos_desde_datos(datos: dict) -> dict:
             "periodo": datos["periodo"],
             "monto": _monto(datos["monto_centavos"]),
             "moneda": datos["moneda"],
-            "vencimiento": datos["vencimiento"],
             "numero_comprobante": datos["numero_comprobante"],
         }
     )
 
 
 def _titulo(texto: str) -> str:
-    plano = " ".join((texto or "").split())
+    plano = " ".join(sin_cita_comprobante(texto or "").split())
     if len(plano) <= 80:
         return plano
     return plano[:80].rstrip()
@@ -241,7 +226,6 @@ def _preparar_confirmacion(campos: dict) -> dict:
         "periodo": periodo,
         "monto_centavos": _centavos(campos.get("monto")),
         "moneda": moneda.strip(),
-        "vencimiento": _vencimiento(campos.get("vencimiento")),
         "numero_comprobante": _opcional(campos.get("numero_comprobante")),
     }
 
@@ -469,8 +453,8 @@ async def confirmar_documento(*, user_id: str, documento_id: str, campos: dict) 
                 """
                 INSERT INTO comprobantes (
                     id, user_id, proveedor, categoria, periodo, monto_centavos,
-                    moneda, vencimiento, numero_comprobante, texto, confirmado_en
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    moneda, numero_comprobante, texto, confirmado_en
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     documento_id,
@@ -480,7 +464,6 @@ async def confirmar_documento(*, user_id: str, documento_id: str, campos: dict) 
                     datos["periodo"],
                     datos["monto_centavos"],
                     datos["moneda"],
-                    datos["vencimiento"],
                     datos["numero_comprobante"],
                     texto,
                     _ahora(),
@@ -639,8 +622,8 @@ async def asentar_pago(
                 """
                 INSERT INTO comprobantes (
                     id, user_id, proveedor, categoria, periodo, monto_centavos,
-                    moneda, vencimiento, numero_comprobante, texto, confirmado_en
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    moneda, numero_comprobante, texto, confirmado_en
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     documento_id,
@@ -651,7 +634,6 @@ async def asentar_pago(
                     datos["monto_centavos"],
                     datos["moneda"],
                     None,
-                    None,
                     texto.strip() or "Pago asentado desde el chat.",
                     _ahora(),
                 ),
@@ -660,6 +642,9 @@ async def asentar_pago(
         except Exception:
             await _rollback(conn)
             raise
+    from .cache_resumen import invalidar_publicado
+
+    await invalidar_publicado(user_id)
     return documento_id
 
 
@@ -755,7 +740,7 @@ async def corregir_comprobante(*, user_id: str, documento_id: str, campos: dict)
                 """
                 UPDATE comprobantes
                 SET proveedor = ?, categoria = ?, periodo = ?, monto_centavos = ?,
-                    moneda = ?, vencimiento = ?, numero_comprobante = ?, cambios_json = ?
+                    moneda = ?, numero_comprobante = ?, cambios_json = ?
                 WHERE id = ? AND user_id = ?
                 """,
                 (
@@ -764,7 +749,6 @@ async def corregir_comprobante(*, user_id: str, documento_id: str, campos: dict)
                     datos["periodo"],
                     datos["monto_centavos"],
                     datos["moneda"],
-                    datos["vencimiento"],
                     datos["numero_comprobante"],
                     json.dumps(cambios, ensure_ascii=False),
                     documento_id,
@@ -794,7 +778,7 @@ async def exportar_csv(*, user_id: str, desde: str, hasta: str) -> str:
         cursor = await conn.execute(
             f"""
             SELECT id, proveedor, categoria, periodo, monto_centavos, moneda,
-                   vencimiento, numero_comprobante
+                   numero_comprobante
             FROM comprobantes
             WHERE user_id = ? AND periodo >= ? AND periodo <= ?
               AND {_NO_ANULADO}
@@ -813,7 +797,6 @@ async def exportar_csv(*, user_id: str, desde: str, hasta: str) -> str:
             "periodo",
             "monto",
             "moneda",
-            "vencimiento",
             "numero_comprobante",
         )
     )
@@ -826,7 +809,6 @@ async def exportar_csv(*, user_id: str, desde: str, hasta: str) -> str:
                 fila["periodo"],
                 _monto(int(fila["monto_centavos"])),
                 fila["moneda"],
-                fila["vencimiento"] or "",
                 fila["numero_comprobante"] or "",
             )
         )

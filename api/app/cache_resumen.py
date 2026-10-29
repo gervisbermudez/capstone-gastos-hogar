@@ -1,0 +1,87 @@
+"""Caché de ``GET /resumen``. Un fallo de Redis no cambia el status ni el cuerpo.
+
+La clave lleva el ``user_id``. Confirmar, anular, corregir y asentar un pago
+borran las claves de esa persona.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import re
+
+logger = logging.getLogger(__name__)
+
+TTL_SEGUNDOS = 60
+PREFIJO = "gastos:resumen:"
+
+_USUARIO = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
+_PERIODO = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
+
+_cliente = None
+
+
+def publicar_redis(redis) -> None:
+    """El cliente del lifespan. ``asentar_pago`` no recibe el de la request."""
+    global _cliente
+    _cliente = redis
+
+
+def clave(user_id: str, desde: str, hasta: str) -> str | None:
+    if _USUARIO.fullmatch(user_id) is None:
+        return None
+    if _PERIODO.fullmatch(desde) is None or _PERIODO.fullmatch(hasta) is None:
+        return None
+    return f"{PREFIJO}{user_id}:{desde}:{hasta}"
+
+
+async def leer(redis, user_id: str, desde: str, hasta: str) -> dict | None:
+    nombre = clave(user_id, desde, hasta)
+    if redis is None or nombre is None:
+        return None
+    try:
+        crudo = await redis.get(nombre)
+    except Exception as exc:
+        logger.warning("No se pudo leer la caché del resumen: %s", type(exc).__name__)
+        return None
+    if not crudo:
+        return None
+    try:
+        if isinstance(crudo, bytes):
+            crudo = crudo.decode()
+        datos = json.loads(crudo)
+    except (TypeError, json.JSONDecodeError, UnicodeDecodeError):
+        return None
+    if not isinstance(datos, dict):
+        return None
+    return datos
+
+
+async def guardar(redis, user_id: str, desde: str, hasta: str, datos: dict) -> None:
+    nombre = clave(user_id, desde, hasta)
+    if redis is None or nombre is None:
+        return
+    try:
+        await redis.set(nombre, json.dumps(datos, ensure_ascii=False), ex=TTL_SEGUNDOS)
+    except Exception as exc:
+        logger.warning("No se pudo guardar la caché del resumen: %s", type(exc).__name__)
+
+
+async def invalidar(redis, user_id: str) -> None:
+    if redis is None or _USUARIO.fullmatch(user_id or "") is None:
+        return
+    patron = f"{PREFIJO}{user_id}:*"
+    try:
+        claves: list[str] = []
+        async for item in redis.scan_iter(match=patron):
+            texto = item.decode() if isinstance(item, bytes) else item
+            if isinstance(texto, str):
+                claves.append(texto)
+        if claves:
+            await redis.delete(*claves)
+    except Exception as exc:
+        logger.warning("No se pudo invalidar la caché del resumen: %s", type(exc).__name__)
+
+
+async def invalidar_publicado(user_id: str) -> None:
+    await invalidar(_cliente, user_id)

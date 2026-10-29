@@ -178,7 +178,6 @@ Respuesta de registro `201`. Respuesta de login `200`:
 | `periodo` | `YYYY-MM` |
 | `monto` | string con dos decimales |
 | `moneda` | string, default `ARS` |
-| `vencimiento` | `YYYY-MM-DD` o null |
 | `numero_comprobante` | string o null |
 
 ### Resumen

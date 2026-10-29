@@ -10,7 +10,6 @@ import base64
 import logging
 import re
 from dataclasses import dataclass
-from datetime import date
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -95,7 +94,6 @@ class LecturaFactura(BaseModel):
         default=None, description="String con dos decimales, sin símbolo, como 18500.50"
     )
     moneda: str | None = Field(default=None, description="ARS si no figura otra")
-    vencimiento: str | None = Field(default=None, description="YYYY-MM-DD o null")
     numero_comprobante: str | None = Field(default=None, description="Número impreso, o null")
     transcripcion: str | None = Field(
         default=None,
@@ -122,7 +120,7 @@ _SISTEMA_COMUN = (
     "No inventes datos que no estén en el comprobante: si no se lee, null. "
     "categoria es servicios, expensas o alquiler. "
     "periodo es YYYY-MM. monto es un string con dos decimales, sin símbolo, como 18500.50. "
-    "moneda es ARS si no figura otra. vencimiento es YYYY-MM-DD o null. "
+    "moneda es ARS si no figura otra. "
     "numero_comprobante es el número impreso o null."
 )
 _SISTEMA_TEXTO = _SISTEMA_COMUN + " El texto ya fue extraído del PDF. Dejá transcripcion en null."
@@ -188,25 +186,6 @@ def normalizar_periodo(valor: object) -> str | None:
     if nombre and nombre.group(1) in _MESES:
         return f"{nombre.group(2)}-{_MESES[nombre.group(1)]}"
     return None
-
-
-def normalizar_fecha(valor: object) -> str | None:
-    """YYYY-MM-DD o DD/MM/YYYY, y tiene que ser un día de calendario."""
-    if not isinstance(valor, str):
-        return None
-    texto = valor.strip()
-    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", texto):
-        candidato = texto
-    else:
-        dia = re.fullmatch(r"(\d{2})[/-](\d{2})[/-](\d{4})", texto)
-        if dia is None:
-            return None
-        candidato = f"{dia.group(3)}-{dia.group(2)}-{dia.group(1)}"
-    try:
-        date.fromisoformat(candidato)
-    except ValueError:
-        return None
-    return candidato
 
 
 async def extraer(datos: bytes) -> ResultadoExtraccion:
@@ -460,14 +439,6 @@ def _campos_desde_lectura(lectura: LecturaFactura) -> tuple[dict, list[str]]:
         bruto["monto"] = monto
 
     bruto["moneda"] = _texto_limpio(lectura.moneda) or "ARS"
-
-    vencimiento_crudo = _texto_limpio(lectura.vencimiento)
-    if vencimiento_crudo:
-        vencimiento = normalizar_fecha(vencimiento_crudo)
-        if vencimiento is None:
-            advertencias.append("Se descartó el vencimiento porque no es una fecha válida.")
-        else:
-            bruto["vencimiento"] = vencimiento
 
     numero = _texto_limpio(lectura.numero_comprobante)
     if numero:

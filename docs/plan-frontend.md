@@ -43,7 +43,7 @@ Piezas de Chakra que cubren la pantalla: `Field`, `Input`, `NativeSelect`, `Butt
 
 `GET /resumen` manda `desde` y `hasta` (`YYYY-MM`). El default es enero del año en curso hasta el mes en curso. Cambiar el rango vuelve a pedir el resumen. No rellena meses ausentes.
 
-La revisión arma el body `Factura`: proveedor, categoría `servicios|expensas|alquiler`, período `YYYY-MM`, monto string con dos decimales (si la persona escribe `18500.5` o `18500,50` se normaliza a `18500.50` antes del POST), moneda default `ARS`, vencimiento `YYYY-MM-DD` o `null`, `numero_comprobante` o `null`. Confirmar es `POST /documentos/{id}/confirmar`. La vista previa del archivo es el objeto local de esa pestaña; el texto extraído viene de la API. Un confirmado se muestra solo lectura. El contrato no trae el binario de vuelta.
+La revisión arma el body `Factura`: proveedor, categoría `servicios|expensas|alquiler`, período `YYYY-MM`, monto string con dos decimales (si la persona escribe `18500.5` o `18500,50` se normaliza a `18500.50` antes del POST), moneda default `ARS`, `numero_comprobante` o `null`. Confirmar es `POST /documentos/{id}/confirmar`. La vista previa del archivo es el objeto local de esa pestaña; el texto extraído viene de la API. Un confirmado se muestra solo lectura. El contrato no trae el binario de vuelta.
 
 El chat hace `POST /tasks` con `{ query, thread_id }` y no espera al modelo (202). Después `GET /tasks/{job_id}` hasta `DONE` o `FAILED`. El `thread_id` de la respuesta se reutiliza. En `AWAITING_APPROVAL` se frena el poll y se ofrece aprobar o rechazar con `POST /tasks/{job_id}/approve` y `{ aprobado: true|false }`; un 202 reanuda el poll del mismo job.
 

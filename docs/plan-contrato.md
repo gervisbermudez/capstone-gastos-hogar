@@ -28,7 +28,7 @@ Opción descartada: reescribir `POST /tasks` para que ya responda 202 con `threa
 
 `armar_llm()` mantiene la regla de proveedor y la temperatura: si `LLM_PROVIDER` es `gemini` (minúsculas, sin espacios de más), usa Gemini; cualquier otro valor, incluido el default `openai`, usa OpenAI. `temperature` sigue en `0`. El nombre del modelo no tiene default en código: Gemini lee `GEMINI_MODEL` y OpenAI lee `OPENAI_MODEL`. Si la variable falta o está vacía, `armar_llm()` lanza `RuntimeError` nombrando la variable, no un modelo.
 
-`campos` en las respuestas es un objeto con las claves de `Factura`, todas opcionales, que al serializar omite las que valen `null`. Así `{}` sigue siendo `{}`. El body de `POST /documentos/{id}/confirmar` es `Factura`, con `proveedor`, `categoria`, `periodo` y `monto` obligatorios, `moneda` con default `ARS`, y `vencimiento` y `numero_comprobante` anulables. Montos: `^\d+\.\d{2}$`. Períodos: `YYYY-MM`. Fechas: `YYYY-MM-DD` de calendario. No se aceptan negativos ni separadores de miles: la fuente muestra `"18500.50"`.
+`campos` en las respuestas es un objeto con las claves de `Factura`, todas opcionales, que al serializar omite las que valen `null`. Así `{}` sigue siendo `{}`. El body de `POST /documentos/{id}/confirmar` es `Factura`, con `proveedor`, `categoria`, `periodo` y `monto` obligatorios, `moneda` con default `ARS`, y `numero_comprobante` anulable. Montos: `^\d+\.\d{2}$`. Períodos: `YYYY-MM`. No se aceptan negativos ni separadores de miles: la fuente muestra `"18500.50"`.
 
 ## Seguridad
 

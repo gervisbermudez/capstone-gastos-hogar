@@ -201,7 +201,6 @@ async def _confirmar_comprobante(
             "periodo": periodo,
             "monto": monto,
             "moneda": "ARS",
-            "vencimiento": None,
             "numero_comprobante": None,
         },
     )

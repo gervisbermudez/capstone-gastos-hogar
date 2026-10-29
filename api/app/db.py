@@ -33,7 +33,6 @@ CREATE TABLE IF NOT EXISTS comprobantes (
     periodo TEXT NOT NULL,
     monto_centavos INTEGER NOT NULL,
     moneda TEXT NOT NULL,
-    vencimiento TEXT,
     numero_comprobante TEXT,
     texto TEXT NOT NULL,
     confirmado_en TEXT NOT NULL,
@@ -81,6 +80,8 @@ async def _migrar(conn: aiosqlite.Connection) -> None:
         if nombre in existentes:
             continue
         await conn.execute(f"ALTER TABLE comprobantes ADD COLUMN {nombre} {definicion}")
+    if "vencimiento" in existentes:
+        await conn.execute("ALTER TABLE comprobantes DROP COLUMN vencimiento")
 
 
 def ruta_base() -> Path:

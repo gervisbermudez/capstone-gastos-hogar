@@ -441,5 +441,11 @@ def test_migracion_agrega_columnas_sin_romper_el_insert(tmp_path, monkeypatch) -
         assert otra is not None
         assert otra["anulado"] is False
         assert isinstance(otra["cambios"], list)
+        revisada = await aiosqlite.connect(ruta)
+        revisada.row_factory = aiosqlite.Row
+        cursor = await revisada.execute("PRAGMA table_info(comprobantes)")
+        nombres = {fila["name"] for fila in await cursor.fetchall()}
+        await revisada.close()
+        assert "vencimiento" not in nombres
 
     asyncio.run(caso())

@@ -11,7 +11,6 @@ OpenAPI muestra un modelo cuando alguna ruta lo referencia.
 from __future__ import annotations
 
 import re
-from datetime import date
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_serializer
@@ -27,7 +26,6 @@ RolMensaje = Literal["persona", "asistente", "nota"]
 
 _PERIODO = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 _MONTO = re.compile(r"^\d+\.\d{2}$")
-_FECHA = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
 class _Entrada(BaseModel):
@@ -60,18 +58,6 @@ def _monto_opcional(valor: object) -> str | None:
     if valor is None:
         return None
     return _monto(valor)
-
-
-def _fecha(valor: object) -> str | None:
-    if valor is None:
-        return None
-    if not isinstance(valor, str) or _FECHA.fullmatch(valor) is None:
-        raise ValueError("La fecha tiene que ser YYYY-MM-DD")
-    try:
-        date.fromisoformat(valor)
-    except ValueError as exc:
-        raise ValueError("La fecha tiene que ser YYYY-MM-DD") from exc
-    return valor
 
 
 class Credenciales(_Entrada):
@@ -123,7 +109,6 @@ class Factura(_Entrada):
     periodo: str
     monto: str
     moneda: str = "ARS"
-    vencimiento: str | None = None
     numero_comprobante: str | None = None
 
     @field_validator("proveedor", "moneda")
@@ -144,11 +129,6 @@ class Factura(_Entrada):
     def monto_ok(cls, valor: str) -> str:
         return _monto(valor)
 
-    @field_validator("vencimiento")
-    @classmethod
-    def fecha_ok(cls, valor: str | None) -> str | None:
-        return _fecha(valor)
-
 
 class CamposDocumento(_Salida):
     """Objeto ``campos``. Puede ser ``{}``. Las claves en null no se emiten."""
@@ -158,7 +138,6 @@ class CamposDocumento(_Salida):
     periodo: str | None = None
     monto: str | None = None
     moneda: str | None = None
-    vencimiento: str | None = None
     numero_comprobante: str | None = None
 
     @field_validator("periodo")
@@ -170,11 +149,6 @@ class CamposDocumento(_Salida):
     @classmethod
     def monto_ok(cls, valor: str | None) -> str | None:
         return _monto_opcional(valor)
-
-    @field_validator("vencimiento")
-    @classmethod
-    def fecha_ok(cls, valor: str | None) -> str | None:
-        return _fecha(valor)
 
     @model_serializer(mode="wrap")
     def _sin_nulos(self, serializer, _info):
@@ -353,10 +327,20 @@ class Aprobacion(_Entrada):
     """Body de ``POST /tasks/{job_id}/approve``.
 
     La fuente fija el ``202`` si el job estaba en ``AWAITING_APPROVAL``.
-    No fija el JSON de la respuesta.
+    La salida es ``TareaReanudada``.
     """
 
     aprobado: bool
+
+
+class TareaReanudada(_Salida):
+    """``POST /tasks/{job_id}/approve`` → ``202``. El job vuelve a la cola.
+
+    Solo ``job_id`` y ``status``. No trae ``thread_id``.
+    """
+
+    job_id: str = Field(min_length=1)
+    status: Literal["PENDING"]
 
 
 class MensajeHilo(_Salida):
