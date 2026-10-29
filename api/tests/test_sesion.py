@@ -21,7 +21,7 @@ from app import db, repositorio
 from app.auth import emitir_token
 from app.canal import Sala, canal_usuario, emitir
 from app.rutas_notificaciones import router
-from app.worker import DONE, guardar
+from app.worker import AWAITING_APPROVAL, DONE, FAILED, _notificacion_de_chat, guardar
 from tests.redis_memoria import RedisMemoria
 
 SECRETO = "secreto-de-test-sesion-con-32-bytes"
@@ -139,6 +139,52 @@ def test_chat_done_avisa_con_ruta_al_hilo(tmp_path, monkeypatch) -> None:
             if canal == canal_usuario(user_id)
         ]
         assert eventos == ["chat.estado", "chat.estado"]
+
+    asyncio.run(caso())
+
+
+def test_la_aprobacion_incluye_hilo_y_job(tmp_path, monkeypatch) -> None:
+    _entorno(monkeypatch, tmp_path)
+
+    async def caso() -> None:
+        user_id = await repositorio.crear_usuario("eva@example.com", "hash-de-test")
+        redis = RedisMemoria()
+        job = {
+            "job_id": "job-aprobar",
+            "status": AWAITING_APPROVAL,
+            "thread_id": "hilo-9",
+            "result": "Falta tu decisión",
+            "user_id": user_id,
+        }
+        await guardar(redis, job)
+        lista = await repositorio.listar_notificaciones(user_id=user_id)
+        assert len(lista["items"]) == 1
+        ruta = lista["items"][0]["accion"]["ruta"]
+        assert "hilo=" in ruta
+        assert "job=" in ruta
+        assert ruta == "/chat?hilo=hilo-9&job=job-aprobar"
+
+        sin_hilo, _ = _notificacion_de_chat(
+            {
+                "status": AWAITING_APPROVAL,
+                "user_id": user_id,
+                "job_id": "job-aprobar",
+                "thread_id": "",
+            }
+        )
+        assert sin_hilo is not None
+        assert sin_hilo["accion"]["ruta"] == "/chat?job=job-aprobar"
+
+        fallo, _ = _notificacion_de_chat(
+            {
+                "status": FAILED,
+                "user_id": user_id,
+                "job_id": "job-aprobar",
+                "thread_id": "hilo-9",
+            }
+        )
+        assert fallo is not None
+        assert fallo["accion"]["ruta"] == "/chat"
 
     asyncio.run(caso())
 

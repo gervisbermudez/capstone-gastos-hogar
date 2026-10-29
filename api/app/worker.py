@@ -104,8 +104,8 @@ def _notificacion_de_chat(job: dict[str, Any]) -> tuple[dict[str, Any] | None, s
     user_id = str(job.get("user_id") or "")
     job_id = str(job.get("job_id") or "")
     thread_id = str(job.get("thread_id") or "")
-    ruta = f"/chat?hilo={quote(thread_id, safe='')}" if thread_id else "/chat"
     if status == DONE:
+        ruta = f"/chat?hilo={quote(thread_id, safe='')}" if thread_id else "/chat"
         cuerpo = _recorte(job.get("result")) or "La respuesta ya está en el chat."
         return (
             {
@@ -125,6 +125,10 @@ def _notificacion_de_chat(job: dict[str, Any]) -> tuple[dict[str, Any] | None, s
             f"{user_id}:chat.estado:job:{job_id}:FAILED",
         )
     if status == AWAITING_APPROVAL:
+        if thread_id:
+            ruta = f"/chat?hilo={quote(thread_id, safe='')}&job={quote(job_id, safe='')}"
+        else:
+            ruta = f"/chat?job={quote(job_id, safe='')}"
         cuerpo = _recorte(job.get("result")) or "Hay una acción pendiente de tu decisión."
         return (
             {

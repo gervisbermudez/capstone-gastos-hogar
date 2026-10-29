@@ -1,4 +1,4 @@
-import { Alert, Box, CloseButton, Drawer, Flex, HStack, Portal, Spinner, Stack, Text } from "@chakra-ui/react"
+import { Alert, Box, CloseButton, Drawer, Flex, Portal, Stack } from "@chakra-ui/react"
 import { useEffect, useRef, useState } from "react"
 import { useLocation, useNavigate, useSearchParams } from "react-router"
 import { ErrorApi, cliente, esAbort } from "../api/cliente"
@@ -34,6 +34,8 @@ import {
   fotoDeAdjunto,
 } from "../componentes/chat/Conversacion"
 import { ListaConversaciones, type VistaConversaciones } from "../componentes/chat/ListaConversaciones"
+import { EsqueletoHilo } from "../componentes/esqueleto"
+import { PuntosEspera, entrada, useMovimientoReducido } from "../movimiento"
 
 type Mensaje = MensajeGuardado
 
@@ -98,7 +100,7 @@ async function seguir(
   saltarAprobacionActual: boolean,
   alHilo?: (threadId: string) => void,
 ): Promise<TareaEstado> {
-  // El canal de la sesión trae chat.estado. Si no está abierto, se vuelve al GET.
+  // El canal de la sesión trae chat.estado. Si la cola sigue vacía, se vuelve al GET.
   const soltarJob = seguirJob(jobId)
   const cola: TareaEstado[] = []
   let despertar: (() => void) | null = null
@@ -122,11 +124,14 @@ async function seguir(
 
   const esperarAviso = () =>
     new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(resolve, 1000)
       const alAbortar = () => {
         clearTimeout(timer)
         reject(new DOMException("aborted", "AbortError"))
       }
+      const timer = setTimeout(() => {
+        signal.removeEventListener("abort", alAbortar)
+        resolve()
+      }, 1000)
       signal.addEventListener("abort", alAbortar, { once: true })
       despertar = () => {
         clearTimeout(timer)
@@ -144,6 +149,7 @@ async function seguir(
       if (signal.aborted) throw new DOMException("aborted", "AbortError")
       const deCola = tomar()
       if (deCola) return deCola
+      if (cola.length > 0) continue
       if (!canalConectado()) {
         const estado = await cliente.verTarea(jobId, signal)
         const sondeo = anotarEstado(estado, puedePararEnAprobacion, alHilo)
@@ -153,6 +159,11 @@ async function seguir(
         continue
       }
       await esperarAviso()
+      if (cola.length > 0) continue
+      const estado = await cliente.verTarea(jobId, signal)
+      const sondeo = anotarEstado(estado, puedePararEnAprobacion, alHilo)
+      puedePararEnAprobacion = sondeo.puedePararEnAprobacion
+      if (sondeo.listo) return estado
     }
   } finally {
     soltar()
@@ -214,6 +225,25 @@ function aprobacionAbierta(hilo: string | null): boolean {
   return leerTranscripto(hilo).some((mensaje) => mensaje.tipo === "aprobacion" && mensaje.resuelta === null)
 }
 
+function aprobacionDe(mensajes: readonly Mensaje[], jobId: string): Mensaje | null {
+  for (let i = mensajes.length - 1; i >= 0; i--) {
+    const mensaje = mensajes[i]
+    if (mensaje?.tipo === "aprobacion" && mensaje.jobId === jobId && mensaje.resuelta === null) return mensaje
+  }
+  return null
+}
+
+function conAprobacion(mensajes: Mensaje[], jobId: string | null, origen: readonly Mensaje[]): Mensaje[] {
+  if (!jobId) return mensajes
+  const carta = aprobacionDe(origen, jobId)
+  if (!carta) return mensajes
+  return [...mensajes.filter((mensaje) => !(mensaje.tipo === "aprobacion" && mensaje.jobId === jobId)), carta]
+}
+
+function soloAprobacion(mensajes: readonly Mensaje[], jobId: string): boolean {
+  return mensajes.length > 0 && mensajes.every((mensaje) => mensaje.tipo === "aprobacion" && mensaje.jobId === jobId)
+}
+
 function prepararEntrada(comprobanteId: string | null, iniciarNuevo: boolean): EntradaChat {
   const hiloActual = leerHilo()
   const bloqueado = leerJobPendiente() !== null || aprobacionAbierta(hiloActual)
@@ -251,6 +281,35 @@ function prepararEntrada(comprobanteId: string | null, iniciarNuevo: boolean): E
   }
 }
 
+function useMensajesNuevos(hiloId: string | null, mensajes: readonly Mensaje[]): ReadonlySet<string> {
+  const firma = useRef<string | null | undefined>(undefined)
+  const vistos = useRef<Set<string>>(new Set())
+  const animados = useRef<Set<string>>(new Set())
+
+  if (firma.current !== hiloId) {
+    const primera = firma.current === undefined
+    const ids = mensajes.map((mensaje) => mensaje.id)
+    const actuales = new Set(ids)
+    const agregados = ids.filter((id) => !vistos.current.has(id))
+    const siguen = [...vistos.current].every((id) => actuales.has(id))
+    const continuo = !primera && siguen && agregados.length <= 2
+    firma.current = hiloId
+    if (!continuo) animados.current = new Set()
+    else {
+      for (const id of agregados) animados.current.add(id)
+    }
+    vistos.current = actuales
+  } else {
+    const agregados = mensajes.filter((mensaje) => !vistos.current.has(mensaje.id))
+    if (agregados.length > 0 && agregados.length <= 2) {
+      for (const mensaje of agregados) animados.current.add(mensaje.id)
+    }
+    for (const mensaje of agregados) vistos.current.add(mensaje.id)
+  }
+
+  return animados.current
+}
+
 function hilosLimpios(hilos: Hilo[] | null, activo: string | null, mensajes: readonly Mensaje[]): Hilo[] | null {
   if (!hilos) return null
   return hilos.map((hilo) => {
@@ -270,6 +329,7 @@ export function Chat() {
   const navigate = useNavigate()
   const comprobanteParam = params.get("comprobante")
   const hiloParam = params.get("hilo")
+  const jobParam = params.get("job")
   const iniciarNuevo = !hiloParam && idNuevo(location.state) === comprobanteParam && comprobanteParam !== null
   const [inicial] = useState(() => prepararEntrada(comprobanteParam, iniciarNuevo))
   const hiloRef = useRef(inicial.hilo)
@@ -304,6 +364,8 @@ export function Chat() {
   const vivo = useRef(true)
   const pegado = useRef(true)
   const lista = useRef<HTMLDivElement>(null)
+  const reducido = useMovimientoReducido()
+  const mensajesNuevos = useMensajesNuevos(hiloActivo, mensajes)
   const acciones = useRef<AccionesChat | null>(null)
   const hayPendiente = mensajes.some((mensaje) => mensaje.tipo === "aprobacion" && mensaje.resuelta === null)
 
@@ -566,8 +628,11 @@ export function Chat() {
 
   useEffect(() => {
     if (!pegado.current) return
-    lista.current?.scrollTo({ top: lista.current.scrollHeight })
-  }, [mensajes, ocupado, cargandoHilo])
+    lista.current?.scrollTo({
+      top: lista.current.scrollHeight,
+      behavior: reducido ? "auto" : "smooth",
+    })
+  }, [mensajes, ocupado, cargandoHilo, reducido])
 
   function alDesplazar() {
     const nodo = lista.current
@@ -660,9 +725,12 @@ export function Chat() {
     }
   }
 
-  async function abrirHilo(threadId: string) {
+  async function abrirHilo(threadId: string, jobId: string | null = null) {
     if (ocupado || hayPendiente) return
-    if (threadId === hiloRef.current && mensajesRef.current.length > 0) return
+    const origen = mensajesRef.current
+    const tieneCarta = jobId !== null && aprobacionDe(origen, jobId) !== null
+    const hayHistoria = origen.some((mensaje) => mensaje.tipo !== "aprobacion")
+    if (threadId === hiloRef.current && origen.length > 0 && (jobId === null || (tieneCarta && hayHistoria))) return
     const dejarContexto = Boolean(contextoIdRef.current && leerContextoChat()?.threadId !== threadId)
     pegado.current = true
     cargaHilo.current?.abort()
@@ -673,18 +741,21 @@ export function Chat() {
     guardarHilo(threadId)
     setError(null)
     const local = leerTranscripto(threadId)
-    if (local.length > 0) {
+    if (local.length > 0 && !(jobId !== null && soloAprobacion(local, jobId))) {
       if (dejarContexto) soltarContexto()
       else recordarContexto(threadId)
-      mensajesRef.current = local
-      setMensajes(local)
+      const mostrados = conAprobacion(local, jobId, origen)
+      if (mostrados !== local) guardarTranscripto(threadId, mostrados)
+      mensajesRef.current = mostrados
+      setMensajes(mostrados)
       setCargandoHilo(false)
       return
     }
     const ctrl = new AbortController()
     cargaHilo.current = ctrl
-    mensajesRef.current = []
-    setMensajes([])
+    const espera = conAprobacion([], jobId, origen)
+    mensajesRef.current = espera
+    setMensajes(espera)
     setCargandoHilo(true)
     try {
       const detalle = await cliente.verHilo(threadId, ctrl.signal)
@@ -694,16 +765,17 @@ export function Chat() {
       const traidos = detalle.mensajes
         .slice(-TOPE_TRANSCRIPTO)
         .map((mensaje) => mensajeDesdeServidor(mensaje.rol, mensaje.texto))
-      if (traidos.length > 0) guardarTranscripto(threadId, traidos)
-      mensajesRef.current = traidos
-      setMensajes(traidos)
+      const mostrados = conAprobacion(traidos, jobId, origen)
+      if (mostrados.length > 0) guardarTranscripto(threadId, mostrados)
+      mensajesRef.current = mostrados
+      setMensajes(mostrados)
     } catch (falla: unknown) {
       if (!vivo.current || esAbort(falla) || hiloRef.current !== threadId) return
       if (anterior) {
         hiloRef.current = anterior
         setHiloActivo(anterior)
         guardarHilo(anterior)
-        const previos = leerTranscripto(anterior)
+        const previos = conAprobacion(leerTranscripto(anterior), anterior === threadId ? jobId : null, origen)
         mensajesRef.current = previos
         setMensajes(previos)
       } else if (!leerJobPendiente()) {
@@ -899,18 +971,61 @@ export function Chat() {
   abrirDesdeEnlace.current = abrirHilo
 
   useEffect(() => {
-    if (!hiloParam) return
-    void abrirDesdeEnlace.current(hiloParam)
-    setSearchParams(
-      (actuales) => {
-        if (!actuales.has("hilo")) return actuales
-        const siguientes = new URLSearchParams(actuales)
-        siguientes.delete("hilo")
-        return siguientes
-      },
-      { replace: true },
-    )
-  }, [hiloParam, setSearchParams])
+    if (!hiloParam && !jobParam) return
+    if (ocupado || hayPendiente) {
+      if (jobParam || !hiloParam || hiloActivo !== hiloParam || mensajes.length === 0) return
+      setSearchParams(
+        (actuales) => {
+          if (!actuales.has("hilo")) return actuales
+          const siguientes = new URLSearchParams(actuales)
+          siguientes.delete("hilo")
+          return siguientes
+        },
+        { replace: true },
+      )
+      return
+    }
+    const ctrl = new AbortController()
+    let cancelado = false
+    void (async () => {
+      let errorEnlace: string | null = null
+      let cartaJob: string | null = null
+      if (jobParam) {
+        try {
+          const estado = await cliente.verTarea(jobParam, ctrl.signal)
+          if (cancelado) return
+          const listo =
+            estado.status === "DONE" || estado.status === "FAILED" || estado.status === "AWAITING_APPROVAL"
+          if (listo) {
+            acciones.current?.aplicar(estado)
+            if (estado.status === "AWAITING_APPROVAL") cartaJob = estado.job_id
+          }
+        } catch (falla: unknown) {
+          if (cancelado || esAbort(falla)) return
+          errorEnlace =
+            falla instanceof ErrorApi && falla.status !== 404 ? falla.message : "No se pudo retomar la consulta."
+        }
+      }
+      if (cancelado) return
+      const apertura = hiloParam ? abrirDesdeEnlace.current(hiloParam, cartaJob) : null
+      if (errorEnlace) setError(errorEnlace)
+      setSearchParams(
+        (actuales) => {
+          if (!actuales.has("hilo") && !actuales.has("job")) return actuales
+          const siguientes = new URLSearchParams(actuales)
+          siguientes.delete("hilo")
+          siguientes.delete("job")
+          return siguientes
+        },
+        { replace: true },
+      )
+      if (apertura) await apertura
+    })()
+    return () => {
+      cancelado = true
+      ctrl.abort()
+    }
+  }, [hiloParam, jobParam, ocupado, hayPendiente, hiloActivo, mensajes.length, setSearchParams])
 
   const bloqueado = ocupado || hayPendiente
   const bloqueadoLista = bloqueado || gestionando
@@ -986,12 +1101,7 @@ export function Chat() {
           ) : null}
           <Box ref={lista} aria-live="polite" flex="1" minH={0} overflowY="auto" px={{ base: 4, md: 6 }} py={4} onScroll={alDesplazar}>
             {cargandoHilo && mensajes.length === 0 ? (
-              <Flex align="center" justify="center" minH="100%">
-                <HStack>
-                  <Spinner size="sm" color="fg" />
-                  <Text color="fg">Abriendo la conversación…</Text>
-                </HStack>
-              </Flex>
+              <EsqueletoHilo />
             ) : mensajes.length === 0 && !ocupado ? (
               <Flex align="center" justify="center" minH="100%">
                 <EstadoVacio bloqueado={bloqueado} onElegir={(texto) => void enviar(texto)} />
@@ -999,18 +1109,16 @@ export function Chat() {
             ) : (
               <Stack gap={3}>
                 {mensajes.map((mensaje) => (
-                  <MensajeChat
-                    key={mensaje.id}
-                    mensaje={mensaje}
-                    ocupado={ocupado}
-                    onDecidir={(jobId, aprobado) => void decidir(jobId, aprobado)}
-                  />
+                  <Box key={mensaje.id} css={mensajesNuevos.has(mensaje.id) ? entrada : undefined}>
+                    <MensajeChat
+                      mensaje={mensaje}
+                      ocupado={ocupado}
+                      onDecidir={(jobId, aprobado) => void decidir(jobId, aprobado)}
+                    />
+                  </Box>
                 ))}
                 {ocupado ? (
-                  <HStack>
-                    <Spinner size="sm" color="fg" />
-                    <Text color="fg">{fase === "decision" ? "Aplicando la decisión…" : "Consultando…"}</Text>
-                  </HStack>
+                  <PuntosEspera texto={fase === "decision" ? "Aplicando la decisión…" : "Consultando…"} />
                 ) : null}
               </Stack>
             )}
