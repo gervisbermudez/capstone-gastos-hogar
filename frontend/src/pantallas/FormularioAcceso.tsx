@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react"
 import { Link, Navigate } from "react-router"
 import { ErrorApi } from "../api/cliente"
 import { Cargando } from "../componentes/Cargando"
+import { Logotipo } from "../componentes/Logotipo"
 import { useSesion } from "../sesion"
 
 type Props = {
@@ -28,7 +29,7 @@ export function FormularioAcceso({ titulo, descripcion, enviarEtiqueta, alterno,
     }
   }, [])
 
-  if (!listo) return <Cargando texto="Cargando la sesión" />
+  if (!listo) return <Cargando texto="Cargando la sesión" completo />
   if (token) return <Navigate to="/" replace />
 
   async function alEnviar(event: FormEvent) {
@@ -51,53 +52,107 @@ export function FormularioAcceso({ titulo, descripcion, enviarEtiqueta, alterno,
   }
 
   return (
-    <Center minH="100vh" bg="bg" px={4} py={8}>
-      <Card.Root w="100%" maxW="md">
-        <Card.Header>
-          <Heading size="lg">{titulo}</Heading>
-          <Card.Description>{descripcion}</Card.Description>
-        </Card.Header>
-        <Card.Body>
-          <form onSubmit={(event) => void alEnviar(event)}>
-            <Stack gap={4}>
-              {error ? (
-                <Alert.Root status="error">
-                  <Alert.Indicator />
-                  <Alert.Description>{error}</Alert.Description>
-                </Alert.Root>
-              ) : null}
-              <Field.Root required>
-                <Field.Label>Email</Field.Label>
-                <Input
-                  type="email"
-                  inputMode="email"
-                  autoComplete="email"
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                />
-              </Field.Root>
-              <Field.Root required>
-                <Field.Label>Contraseña</Field.Label>
-                <Input
-                  type="password"
-                  autoComplete={titulo === "Ingresar" ? "current-password" : "new-password"}
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                />
-              </Field.Root>
-              <Button type="submit" loading={enviando}>
-                {enviarEtiqueta}
-              </Button>
-              <Text fontSize="sm">
-                {alterno.texto}{" "}
-                <Button asChild variant="plain" size="sm" px={0}>
-                  <Link to={alterno.to}>{alterno.etiqueta}</Link>
+    <Center minH="100vh" px={4} py={8} bg="transparent">
+      <Stack align="center" gap={6} w="100%" maxW="md">
+        <Logotipo tamano="md" />
+        <Card.Root
+          w="100%"
+          size="lg"
+          bg="marca.papel"
+          color="marca.carbon"
+          borderWidth="0"
+          borderRadius="l3"
+          boxShadow="0 24px 60px rgba(28, 27, 23, 0.12)"
+        >
+          <Card.Header>
+            <Heading
+              fontFamily="heading"
+              fontWeight="500"
+              fontSize="2.25rem"
+              letterSpacing="-0.03em"
+              lineHeight="1.15"
+              color="marca.carbon"
+            >
+              {titulo}
+            </Heading>
+            <Card.Description color="fg.muted">{descripcion}</Card.Description>
+          </Card.Header>
+          <Card.Body>
+            <form onSubmit={(event) => void alEnviar(event)}>
+              <Stack gap={4}>
+                {error ? (
+                  <Alert.Root
+                    status="error"
+                    alignItems="center"
+                    bg="estado.fallaFondo"
+                    color="marca.carbon"
+                    borderWidth="1px"
+                    borderStyle="solid"
+                    borderColor="estado.falla"
+                    borderRadius="16px"
+                  >
+                    <Alert.Indicator color="estado.falla" />
+                    <Alert.Description color="marca.carbon">{error}</Alert.Description>
+                  </Alert.Root>
+                ) : null}
+                <Field.Root required>
+                  <Field.Label color="marca.carbon" fontWeight="medium">
+                    Email
+                  </Field.Label>
+                  <Input
+                    type="email"
+                    inputMode="email"
+                    autoComplete="email"
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                  />
+                </Field.Root>
+                <Field.Root required>
+                  <Field.Label color="marca.carbon" fontWeight="medium">
+                    Contraseña
+                  </Field.Label>
+                  <Input
+                    type="password"
+                    autoComplete={titulo === "Ingresar" ? "current-password" : "new-password"}
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                  />
+                </Field.Root>
+                <Button
+                  type="submit"
+                  loading={enviando}
+                  w="100%"
+                  borderRadius="full"
+                  fontWeight="600"
+                  bg="marca.sol"
+                  color="marca.carbon"
+                  _hover={{ bg: "#e8bc45", color: "marca.carbon" }}
+                  _active={{ bg: "#e8bc45", color: "marca.carbon" }}
+                >
+                  {enviarEtiqueta}
                 </Button>
-              </Text>
-            </Stack>
-          </form>
-        </Card.Body>
-      </Card.Root>
+                <Text fontSize="sm" color="marca.carbon">
+                  {alterno.texto}{" "}
+                  <Text
+                    asChild
+                    display="inline"
+                    fontSize="sm"
+                    fontWeight="600"
+                    color="marca.carbon"
+                    textDecoration="underline"
+                    textUnderlineOffset="3px"
+                    textDecorationColor="marca.carbon"
+                    _hover={{ color: "marca.carbon", textDecorationColor: "marca.carbon" }}
+                    _active={{ color: "marca.carbon", textDecorationColor: "marca.carbon" }}
+                  >
+                    <Link to={alterno.to}>{alterno.etiqueta}</Link>
+                  </Text>
+                </Text>
+              </Stack>
+            </form>
+          </Card.Body>
+        </Card.Root>
+      </Stack>
     </Center>
   )
 }

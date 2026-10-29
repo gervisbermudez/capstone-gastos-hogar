@@ -10,7 +10,7 @@ export function Ingreso() {
   return (
     <FormularioAcceso
       titulo="Ingresar"
-      descripcion="Asistente de gastos del hogar."
+      descripcion="Cargá un comprobante y preguntale por tus gastos."
       enviarEtiqueta="Ingresar"
       alterno={{ texto: "¿No tenés cuenta?", to: "/registro", etiqueta: "Crear cuenta" }}
       onEnviar={async (email, password) => {

@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react"
 import { useNavigate } from "react-router"
 import { guardarToken, leerToken, olvidarHilo, olvidarSesion } from "./almacen"
+import { olvidarResumenes } from "./api/cacheResumen"
 import { ErrorApi, cliente, esAbort, registrarNoAutorizado } from "./api/cliente"
 import { olvidarVistas } from "./vistas"
 
@@ -22,6 +23,7 @@ export function ProveedorSesion({ children }: { children: ReactNode }) {
 
   const salir = useCallback(() => {
     olvidarSesion()
+    olvidarResumenes()
     olvidarVistas()
     setToken(null)
     setEmail(null)
@@ -30,6 +32,7 @@ export function ProveedorSesion({ children }: { children: ReactNode }) {
 
   const entrar = useCallback((accessToken: string) => {
     olvidarHilo()
+    olvidarResumenes()
     guardarToken(accessToken)
     setToken(accessToken)
     setListo(true)

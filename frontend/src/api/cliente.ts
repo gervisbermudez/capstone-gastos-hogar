@@ -1,4 +1,5 @@
 import { leerToken, olvidarSesion } from "../almacen"
+import { olvidarResumenes } from "./cacheResumen"
 import {
   ESTADOS_TAREA,
   type Cambio,
@@ -49,6 +50,10 @@ function origen(): string {
   const valor = import.meta.env.VITE_API_URL?.trim()
   if (!valor) throw new ErrorApi("Falta VITE_API_URL en el entorno del frontend.", 0)
   return valor.replace(/\/$/, "")
+}
+
+function urlDeSocket(path: string): string {
+  return `${origen().replace(/^http/i, "ws")}${path}`
 }
 
 function limpiarMensaje(mensaje: string): string {
@@ -106,6 +111,7 @@ async function enviar(path: string, opciones: Omit<Pedido, "esperado">): Promise
     const token = leerToken()
     if (!token) {
       olvidarSesion()
+      olvidarResumenes()
       alNoAutorizado()
       throw new ErrorApi("La sesión venció.", 401)
     }
@@ -137,6 +143,7 @@ async function enviar(path: string, opciones: Omit<Pedido, "esperado">): Promise
 
   if (respuesta.status === 401 && privado) {
     olvidarSesion()
+    olvidarResumenes()
     alNoAutorizado()
     throw new ErrorApi("La sesión venció.", 401)
   }
@@ -420,6 +427,111 @@ function exigirTareaEstado(valor: unknown): TareaEstado {
   }
 }
 
+function esLatido(valor: unknown): boolean {
+  return esObjeto(valor) && valor.tipo === "ping"
+}
+
+async function* eventosPorSocket(jobId: string, signal?: AbortSignal): AsyncGenerator<TareaEstado> {
+  if (signal?.aborted) throw new DOMException("aborted", "AbortError")
+  const token = leerToken()
+  if (!token) {
+    olvidarSesion()
+    olvidarResumenes()
+    alNoAutorizado()
+    throw new ErrorApi("La sesión venció.", 401)
+  }
+
+  const socket = new WebSocket(urlDeSocket(`/tasks/${encodeURIComponent(jobId)}/ws`))
+  const pendientes: TareaEstado[] = []
+  let cerrado = false
+  let error: Error | null = null
+  let despertar: (() => void) | null = null
+
+  const seguir = () => {
+    const fn = despertar
+    despertar = null
+    fn?.()
+  }
+
+  const alAbrir = () => {
+    try {
+      socket.send(JSON.stringify({ token }))
+    } catch {
+      error = new ErrorApi("No se pudo conectar con la API.", 0)
+      seguir()
+    }
+  }
+  const alMensaje = (evento: MessageEvent<unknown>) => {
+    if (typeof evento.data !== "string") return
+    let json: unknown
+    try {
+      json = JSON.parse(evento.data) as unknown
+    } catch {
+      error = new ErrorApi("La API devolvió un estado que no es JSON.", 0)
+      seguir()
+      return
+    }
+    if (esLatido(json)) return
+    try {
+      pendientes.push(exigirTareaEstado(json))
+    } catch (falla) {
+      error = falla instanceof Error ? falla : new ErrorApi("La API no devolvió la tarea.", 0)
+    }
+    seguir()
+  }
+  const alCerrar = (evento: CloseEvent) => {
+    cerrado = true
+    if (evento.code === 4401) {
+      olvidarSesion()
+      olvidarResumenes()
+      alNoAutorizado()
+      error = new ErrorApi("La sesión venció.", 401)
+    } else if (evento.code === 4404) {
+      error = new ErrorApi("No existe ese job_id.", 404)
+    } else if (evento.code !== 1000 && evento.code !== 1005 && pendientes.length === 0 && !error) {
+      error = new ErrorApi("No se pudo conectar con la API.", 0)
+    }
+    seguir()
+  }
+
+  socket.addEventListener("open", alAbrir)
+  socket.addEventListener("message", alMensaje)
+  socket.addEventListener("close", alCerrar)
+  const alAbortar = () => {
+    socket.close()
+    seguir()
+  }
+  signal?.addEventListener("abort", alAbortar, { once: true })
+
+  try {
+    for (;;) {
+      if (signal?.aborted) throw new DOMException("aborted", "AbortError")
+      const siguiente = pendientes.shift()
+      if (siguiente) {
+        yield siguiente
+        continue
+      }
+      if (error) throw error
+      if (cerrado) return
+      await new Promise<void>((resolve) => {
+        if (pendientes.length > 0 || cerrado || error || signal?.aborted) {
+          resolve()
+          return
+        }
+        despertar = resolve
+      })
+    }
+  } finally {
+    signal?.removeEventListener("abort", alAbortar)
+    socket.removeEventListener("open", alAbrir)
+    socket.removeEventListener("message", alMensaje)
+    socket.removeEventListener("close", alCerrar)
+    if (socket.readyState === WebSocket.CONNECTING || socket.readyState === WebSocket.OPEN) {
+      socket.close()
+    }
+  }
+}
+
 export const cliente = {
   registrar(credenciales: Credenciales): Promise<Token> {
     return pedir("/auth/registro", {
@@ -471,21 +583,29 @@ export const cliente = {
       method: "POST",
       cuerpo: factura,
       esperado: 200,
-    }).then((valor) => asegurarConfirmado(valor, "La API no confirmó el comprobante."))
+    }).then((valor) => {
+      olvidarResumenes()
+      return asegurarConfirmado(valor, "La API no confirmó el comprobante.")
+    })
   },
 
   descartar(id: string): Promise<void> {
     return pedir(`/documentos/${encodeURIComponent(id)}`, {
       method: "DELETE",
       esperado: 204,
-    }).then(() => undefined)
+    }).then(() => {
+      olvidarResumenes()
+    })
   },
 
   anular(id: string): Promise<DocumentoConfirmado> {
     return pedir(`/documentos/${encodeURIComponent(id)}/anular`, {
       method: "POST",
       esperado: 200,
-    }).then((valor) => asegurarConfirmado(valor, "La API no devolvió el comprobante."))
+    }).then((valor) => {
+      olvidarResumenes()
+      return asegurarConfirmado(valor, "La API no devolvió el comprobante.")
+    })
   },
 
   corregir(id: string, factura: Factura): Promise<DocumentoConfirmado> {
@@ -493,7 +613,10 @@ export const cliente = {
       method: "POST",
       cuerpo: factura,
       esperado: 200,
-    }).then((valor) => asegurarConfirmado(valor, "La API no devolvió el comprobante."))
+    }).then((valor) => {
+      olvidarResumenes()
+      return asegurarConfirmado(valor, "La API no devolvió el comprobante.")
+    })
   },
 
   archivo(id: string, signal?: AbortSignal): Promise<Blob> {
@@ -529,6 +652,10 @@ export const cliente = {
 
   verTarea(jobId: string, signal?: AbortSignal): Promise<TareaEstado> {
     return pedir(`/tasks/${encodeURIComponent(jobId)}`, { signal, esperado: 200 }).then(exigirTareaEstado)
+  },
+
+  eventosTarea(jobId: string, signal?: AbortSignal): AsyncGenerator<TareaEstado> {
+    return eventosPorSocket(jobId, signal)
   },
 
   aprobar(jobId: string, aprobado: boolean): Promise<void> {

@@ -3,11 +3,23 @@ const CLAVE_HILO = "gastos.thread_id"
 const CLAVE_JOB = "gastos.job_pendiente"
 const CLAVE_TRANSCRIPTOS = "gastos.transcriptos"
 const CLAVE_CONSULTA = "gastos.consulta_pendiente"
+const CLAVE_CONTEXTO = "gastos.chat_contexto"
+
+export type ContextoChat = {
+  comprobanteId: string
+  threadId: string | null
+}
 
 export const TOPE_TRANSCRIPTO = 100
 
+export type FotoAdjunto = {
+  id: string
+  titulo: string
+  detalle: string
+}
+
 export type MensajeGuardado =
-  | { id: string; tipo: "persona"; texto: string }
+  | { id: string; tipo: "persona"; texto: string; adjunto?: FotoAdjunto }
   | { id: string; tipo: "asistente"; texto: string }
   | { id: string; tipo: "nota"; texto: string }
   | { id: string; tipo: "aprobacion"; jobId: string; texto: string; resuelta: "si" | "no" | null }
@@ -93,12 +105,40 @@ export function olvidarJobAplicado(threadId: string): void {
   escribirEntrada(threadId, { mensajes: actual.mensajes, jobAplicado: null })
 }
 
+export function leerContextoChat(): ContextoChat | null {
+  const crudo = sessionStorage.getItem(CLAVE_CONTEXTO)
+  if (!crudo) return null
+  try {
+    const dato: unknown = JSON.parse(crudo)
+    if (!dato || typeof dato !== "object" || Array.isArray(dato)) return null
+    const registro = dato as Record<string, unknown>
+    if (typeof registro.comprobanteId !== "string" || registro.comprobanteId === "") return null
+    if (registro.threadId !== null && typeof registro.threadId !== "string") return null
+    const threadId = typeof registro.threadId === "string" && registro.threadId !== "" ? registro.threadId : null
+    return { comprobanteId: registro.comprobanteId, threadId }
+  } catch {
+    return null
+  }
+}
+
+export function guardarContextoChat(contexto: ContextoChat): void {
+  sessionStorage.setItem(
+    CLAVE_CONTEXTO,
+    JSON.stringify({ comprobanteId: contexto.comprobanteId, threadId: contexto.threadId }),
+  )
+}
+
+export function olvidarContextoChat(): void {
+  sessionStorage.removeItem(CLAVE_CONTEXTO)
+}
+
 export function olvidarSesion(): void {
   sessionStorage.removeItem(CLAVE_TOKEN)
   sessionStorage.removeItem(CLAVE_HILO)
   sessionStorage.removeItem(CLAVE_JOB)
   sessionStorage.removeItem(CLAVE_TRANSCRIPTOS)
   sessionStorage.removeItem(CLAVE_CONSULTA)
+  sessionStorage.removeItem(CLAVE_CONTEXTO)
 }
 
 function leerObjeto(clave: string): Record<string, unknown> {
@@ -147,11 +187,25 @@ function quitarClave(clave: string, id: string): void {
   sessionStorage.setItem(clave, JSON.stringify(mapa))
 }
 
+function esFotoAdjunto(valor: unknown): valor is FotoAdjunto {
+  if (!valor || typeof valor !== "object" || Array.isArray(valor)) return false
+  const foto = valor as Record<string, unknown>
+  return typeof foto.id === "string" && foto.id !== "" && typeof foto.titulo === "string" && typeof foto.detalle === "string"
+}
+
+function esPersonaGuardada(mensaje: Record<string, unknown>): boolean {
+  if (!("adjunto" in mensaje) || mensaje.adjunto == null) return true
+  if (esFotoAdjunto(mensaje.adjunto)) return true
+  delete mensaje.adjunto
+  return true
+}
+
 function esMensajeGuardado(valor: unknown): valor is MensajeGuardado {
   if (!valor || typeof valor !== "object") return false
   const mensaje = valor as Record<string, unknown>
   if (typeof mensaje.id !== "string" || typeof mensaje.texto !== "string") return false
-  if (mensaje.tipo === "persona" || mensaje.tipo === "asistente" || mensaje.tipo === "nota") return true
+  if (mensaje.tipo === "asistente" || mensaje.tipo === "nota") return true
+  if (mensaje.tipo === "persona") return esPersonaGuardada(mensaje)
   if (mensaje.tipo !== "aprobacion" || typeof mensaje.jobId !== "string") return false
   return mensaje.resuelta === "si" || mensaje.resuelta === "no" || mensaje.resuelta === null
 }

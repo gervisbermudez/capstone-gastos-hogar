@@ -1,6 +1,5 @@
 import {
   Alert,
-  Badge,
   Box,
   Button,
   Card,
@@ -23,13 +22,32 @@ import { Cargando } from "../componentes/Cargando"
 import { armarFactura, desdeCampos, type BorradorFactura, type ErroresFactura } from "../formulario"
 import { leerVista } from "../vistas"
 
+const SOMBRA = "0 12px 40px rgba(28, 27, 23, 0.06)"
+
+const alertaFalla = {
+  borderRadius: "16px",
+  bg: "estado.fallaFondo",
+  color: "marca.carbon",
+}
+
+const alertaAviso = {
+  borderRadius: "16px",
+  bg: "estado.avisoFondo",
+  color: "marca.carbon",
+}
+
+const alertaNeutra = {
+  borderRadius: "16px",
+  bg: "marca.alabastro",
+  color: "fg.muted",
+}
+
 const CLAVES: Array<keyof BorradorFactura> = [
   "proveedor",
   "categoria",
   "periodo",
   "monto",
   "moneda",
-  "vencimiento",
   "numero_comprobante",
 ]
 
@@ -39,7 +57,6 @@ const ETIQUETA_CAMPO: Record<string, string> = {
   periodo: "Período",
   monto: "Monto",
   moneda: "Moneda",
-  vencimiento: "Vencimiento",
   numero_comprobante: "Número de comprobante",
 }
 
@@ -66,10 +83,12 @@ function textoCambio(campo: string, valor: string | null): string {
   return valor
 }
 
-function etiquetaEstado(documento: DocumentoDetalle): { texto: string; color: "orange" | "green" | "red" } {
-  if (!esBorrador(documento) && documento.anulado) return { texto: "Anulado", color: "red" }
-  if (esBorrador(documento)) return { texto: "Borrador", color: "orange" }
-  return { texto: "Confirmado", color: "green" }
+function etiquetaEstado(documento: DocumentoDetalle): { texto: string; bg: string; color: string } {
+  if (!esBorrador(documento) && documento.anulado) {
+    return { texto: "Anulado", bg: "estado.fallaFondo", color: "estado.falla" }
+  }
+  if (esBorrador(documento)) return { texto: "Borrador", bg: "estado.avisoFondo", color: "estado.aviso" }
+  return { texto: "Confirmado", bg: "estado.okFondo", color: "estado.ok" }
 }
 
 function mimeBase(mime: string): string {
@@ -168,7 +187,7 @@ export function Revision() {
       const confirmado = await cliente.confirmar(documento.id, armado.factura)
       if (confirmado.indexado === "error") {
         toaster.create({
-          title: "El monto está en el libro. El texto todavía no se puede buscar.",
+          title: "El monto ya quedó guardado. El texto de la factura todavía no se puede buscar.",
           type: "warning",
         })
       } else {
@@ -261,11 +280,17 @@ export function Revision() {
   if (!documento || !form) {
     return (
       <Stack gap={4}>
-        <Alert.Root status="error">
-          <Alert.Indicator />
-          <Alert.Description>{falla ?? "No encontramos ese comprobante."}</Alert.Description>
+        <Alert.Root status="error" css={alertaFalla}>
+          <Alert.Indicator color="estado.falla" />
+          <Alert.Description color="marca.carbon">{falla ?? "No encontramos ese comprobante."}</Alert.Description>
         </Alert.Root>
-        <Button asChild alignSelf="flex-start" variant="outline">
+        <Button
+          asChild
+          alignSelf="flex-start"
+          variant="ghost"
+          borderRadius="full"
+          css={{ color: "marca.carbon", _hover: { bg: "marca.alabastro" } }}
+        >
           <Link to="/">Volver al tablero</Link>
         </Button>
       </Stack>
@@ -288,61 +313,131 @@ export function Revision() {
   const estado = etiquetaEstado(documento)
 
   return (
-    <Stack gap={4}>
-      <Flex justify="space-between" gap={3} align="center" wrap="wrap">
-        <Heading size="lg">Revisar comprobante</Heading>
-        <Badge colorPalette={estado.color}>{estado.texto}</Badge>
-      </Flex>
-      <Button asChild variant="ghost" alignSelf="flex-start">
-        <Link to="/">Volver al tablero</Link>
-      </Button>
+    <Stack gap={{ base: 6, md: 8 }}>
+      <Stack gap={3}>
+        <Flex justify="space-between" gap={3} align={{ base: "flex-start", sm: "center" }} wrap="wrap">
+          <Heading
+            as="h1"
+            color="marca.carbon"
+            fontSize={{ base: "2rem", md: "2.5rem" }}
+            fontWeight="medium"
+            letterSpacing="-0.03em"
+            lineHeight="1.1"
+          >
+            Revisar comprobante
+          </Heading>
+          <Flex gap={2} align="center" wrap="wrap" alignSelf={{ base: "flex-start", sm: "center" }}>
+            <Button
+              asChild
+              size="sm"
+              variant="outline"
+              borderRadius="full"
+              css={{
+                color: "marca.carbon",
+                borderColor: "rgba(28, 28, 26, 0.2)",
+                bg: "marca.papel",
+                _hover: { bg: "marca.alabastro", color: "marca.carbon" },
+              }}
+            >
+              <Link
+                to={`/chat?comprobante=${encodeURIComponent(documento.id)}`}
+                state={{ nuevoComprobante: documento.id }}
+              >
+                Chat
+              </Link>
+            </Button>
+            <Box
+              display="inline-flex"
+              alignItems="center"
+              bg={estado.bg}
+              color={estado.color}
+              borderRadius="full"
+              px={3}
+              py={1}
+              fontSize="sm"
+              fontWeight="medium"
+              lineHeight="1.4"
+              whiteSpace="nowrap"
+            >
+              {estado.texto}
+            </Box>
+          </Flex>
+        </Flex>
+        <Button
+          asChild
+          variant="ghost"
+          alignSelf="flex-start"
+          borderRadius="full"
+          css={{ color: "marca.carbon", _hover: { bg: "marca.alabastro" } }}
+        >
+          <Link to="/">Volver al tablero</Link>
+        </Button>
+      </Stack>
       {anulado ? (
-        <Alert.Root status="info">
-          <Alert.Indicator />
-          <Alert.Description>Este comprobante está anulado.</Alert.Description>
+        <Alert.Root status="info" css={alertaNeutra}>
+          <Alert.Indicator color="fg.muted" />
+          <Alert.Description color="fg.muted">Este comprobante está anulado.</Alert.Description>
         </Alert.Root>
       ) : !esBorrador(documento) ? (
-        <Alert.Root status="info">
-          <Alert.Indicator />
-          <Alert.Description>Este comprobante ya está confirmado.</Alert.Description>
+        <Alert.Root status="info" css={alertaNeutra}>
+          <Alert.Indicator color="fg.muted" />
+          <Alert.Description color="fg.muted">Este comprobante ya está confirmado.</Alert.Description>
         </Alert.Root>
       ) : null}
       {!esBorrador(documento) && documento.indexado === "error" ? (
-        <Alert.Root status="warning">
-          <Alert.Indicator />
-          <Alert.Description>El monto está en el libro. El texto todavía no se puede buscar.</Alert.Description>
+        <Alert.Root status="warning" css={alertaAviso}>
+          <Alert.Indicator color="estado.aviso" />
+          <Alert.Description color="marca.carbon">
+            El monto ya quedó guardado. El texto de la factura todavía no se puede buscar.
+          </Alert.Description>
         </Alert.Root>
       ) : null}
       {!esBorrador(documento) && documento.indexado === "omitido" ? (
-        <Text color="fg.muted">El texto de este comprobante no quedó indexado.</Text>
+        <Text color="fg.muted">Esta factura no se puede buscar por su texto.</Text>
       ) : null}
       {esBorrador(documento)
         ? documento.advertencias.map((aviso) => (
-            <Alert.Root key={aviso} status="warning">
-              <Alert.Indicator />
-              <Alert.Description>{aviso}</Alert.Description>
+            <Alert.Root key={aviso} status="warning" css={alertaAviso}>
+              <Alert.Indicator color="estado.aviso" />
+              <Alert.Description color="marca.carbon">{aviso}</Alert.Description>
             </Alert.Root>
           ))
         : null}
       {falla ? (
-        <Alert.Root status="error">
-          <Alert.Indicator />
-          <Alert.Description>{falla}</Alert.Description>
+        <Alert.Root status="error" css={alertaFalla}>
+          <Alert.Indicator color="estado.falla" />
+          <Alert.Description color="marca.carbon">{falla}</Alert.Description>
         </Alert.Root>
       ) : null}
-      <SimpleGrid columns={{ base: 1, lg: 2 }} gap={4}>
-        <Card.Root>
+      <SimpleGrid columns={{ base: 1, lg: 2 }} gap={{ base: 4, md: 6 }}>
+        <Card.Root bg="marca.papel" borderWidth="0" borderRadius="20px" boxShadow={SOMBRA}>
           <Card.Header>
-            <Card.Title>Vista previa</Card.Title>
+            <Card.Title fontWeight="medium" color="marca.carbon">
+              Vista previa
+            </Card.Title>
           </Card.Header>
           <Card.Body>
             <Stack gap={3}>
               {vista && esImagen ? (
-                <Image src={vista.url} alt={nombre || "Comprobante"} maxH="24rem" objectFit="contain" w="100%" />
+                <Image
+                  src={vista.url}
+                  alt={nombre || "Comprobante"}
+                  maxH="24rem"
+                  objectFit="contain"
+                  w="100%"
+                  display="block"
+                  borderRadius="16px"
+                  bg="marca.alabastro"
+                  p={3}
+                />
               ) : null}
               {vista && esPdf ? (
-                <Box h="24rem" borderWidth="1px" rounded="md" overflow="hidden">
-                  <iframe title={nombre || "Comprobante"} src={vista.url} style={{ width: "100%", height: "100%", border: 0 }} />
+                <Box h="24rem" borderRadius="16px" overflow="hidden" bg="marca.alabastro">
+                  <iframe
+                    title={nombre || "Comprobante"}
+                    src={vista.url}
+                    style={{ width: "100%", height: "100%", border: 0, background: "#f3efe4" }}
+                  />
                 </Box>
               ) : null}
               {nombre ? <Text fontSize="sm" color="fg.muted">{nombre}</Text> : null}
@@ -356,28 +451,64 @@ export function Revision() {
                 </Text>
               ) : null}
               {esBorrador(documento) ? (
-                <Box maxH="16rem" overflowY="auto" whiteSpace="pre-wrap" fontSize="sm">
+                <Box
+                  maxH="16rem"
+                  overflowY="auto"
+                  whiteSpace="pre-wrap"
+                  fontSize="sm"
+                  color="marca.carbon"
+                  bg="marca.alabastro"
+                  borderRadius="16px"
+                  p={4}
+                >
                   {documento.texto || "Sin texto extraído."}
                 </Box>
               ) : null}
             </Stack>
           </Card.Body>
         </Card.Root>
-        <Card.Root>
+        <Card.Root bg="marca.papel" borderWidth="0" borderRadius="20px" boxShadow={SOMBRA}>
           <Card.Header>
-            <Card.Title>Datos</Card.Title>
+            <Flex justify="space-between" align="center" gap={3} wrap="wrap">
+              <Card.Title fontWeight="medium" color="marca.carbon">
+                Datos
+              </Card.Title>
+              {!esBorrador(documento) && !anulado && !corrigiendo ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  borderRadius="full"
+                  disabled={guardando}
+                  onClick={() => setCorrigiendo(true)}
+                  css={{
+                    color: "marca.carbon",
+                    borderColor: "rgba(28, 28, 26, 0.2)",
+                    _hover: { bg: "marca.alabastro" },
+                  }}
+                >
+                  Editar
+                </Button>
+              ) : null}
+            </Flex>
           </Card.Header>
           <Card.Body>
             {cambios.length > 0 ? (
               <Stack gap={1} mb={4}>
-                <Text fontWeight="medium">Cambios</Text>
+                <Text fontWeight="medium" color="marca.carbon">
+                  Cambios
+                </Text>
                 {cambios.map((cambio, indice) => (
-                  <Text key={`${cambio.campo}-${indice}`} fontSize="sm">
+                  <Text key={`${cambio.campo}-${indice}`} fontSize="sm" color="fg.muted">
                     {etiquetaCampo(cambio.campo)}: antes {textoCambio(cambio.campo, cambio.antes)}, después{" "}
                     {textoCambio(cambio.campo, cambio.despues)}
                   </Text>
                 ))}
               </Stack>
+            ) : null}
+            {soloLectura && !anulado ? (
+              <Text mb={4} fontSize="sm" color="fg.muted">
+                Los datos están bloqueados. Editar los habilita.
+              </Text>
             ) : null}
             <form
               onSubmit={(event) => {
@@ -398,7 +529,7 @@ export function Revision() {
                     disabled={soloLectura}
                     onChange={(event) => actualizar("proveedor", event.target.value)}
                   />
-                  {errores.proveedor ? <Field.ErrorText>{errores.proveedor}</Field.ErrorText> : null}
+                  {errores.proveedor ? <Field.ErrorText color="estado.falla">{errores.proveedor}</Field.ErrorText> : null}
                 </Field.Root>
                 <Field.Root invalid={Boolean(errores.categoria)} disabled={soloLectura}>
                   <Field.Label>Categoría</Field.Label>
@@ -416,7 +547,7 @@ export function Revision() {
                     </NativeSelect.Field>
                     <NativeSelect.Indicator />
                   </NativeSelect.Root>
-                  {errores.categoria ? <Field.ErrorText>{errores.categoria}</Field.ErrorText> : null}
+                  {errores.categoria ? <Field.ErrorText color="estado.falla">{errores.categoria}</Field.ErrorText> : null}
                 </Field.Root>
                 <Field.Root invalid={Boolean(errores.periodo)} disabled={soloLectura}>
                   <Field.Label>Período</Field.Label>
@@ -426,7 +557,7 @@ export function Revision() {
                     disabled={soloLectura}
                     onChange={(event) => actualizar("periodo", event.target.value)}
                   />
-                  {errores.periodo ? <Field.ErrorText>{errores.periodo}</Field.ErrorText> : null}
+                  {errores.periodo ? <Field.ErrorText color="estado.falla">{errores.periodo}</Field.ErrorText> : null}
                 </Field.Root>
                 <Field.Root invalid={Boolean(errores.monto)} disabled={soloLectura}>
                   <Field.Label>Monto</Field.Label>
@@ -436,8 +567,8 @@ export function Revision() {
                     disabled={soloLectura}
                     onChange={(event) => actualizar("monto", event.target.value)}
                   />
-                  <Field.HelperText>Dos decimales, por ejemplo 18500.50</Field.HelperText>
-                  {errores.monto ? <Field.ErrorText>{errores.monto}</Field.ErrorText> : null}
+                  <Field.HelperText color="fg.muted">Dos decimales, por ejemplo 18500.50</Field.HelperText>
+                  {errores.monto ? <Field.ErrorText color="estado.falla">{errores.monto}</Field.ErrorText> : null}
                 </Field.Root>
                 <Field.Root invalid={Boolean(errores.moneda)} disabled={soloLectura}>
                   <Field.Label>Moneda</Field.Label>
@@ -446,19 +577,8 @@ export function Revision() {
                     disabled={soloLectura}
                     onChange={(event) => actualizar("moneda", event.target.value)}
                   />
-                  <Field.HelperText>Si lo dejás vacío, se usa ARS.</Field.HelperText>
-                  {errores.moneda ? <Field.ErrorText>{errores.moneda}</Field.ErrorText> : null}
-                </Field.Root>
-                <Field.Root invalid={Boolean(errores.vencimiento)} disabled={soloLectura}>
-                  <Field.Label>Vencimiento</Field.Label>
-                  <Input
-                    type="date"
-                    value={form.vencimiento}
-                    disabled={soloLectura}
-                    onChange={(event) => actualizar("vencimiento", event.target.value)}
-                  />
-                  <Field.HelperText>Opcional.</Field.HelperText>
-                  {errores.vencimiento ? <Field.ErrorText>{errores.vencimiento}</Field.ErrorText> : null}
+                  <Field.HelperText color="fg.muted">Si lo dejás vacío, se usa ARS.</Field.HelperText>
+                  {errores.moneda ? <Field.ErrorText color="estado.falla">{errores.moneda}</Field.ErrorText> : null}
                 </Field.Root>
                 <Field.Root invalid={Boolean(errores.numero_comprobante)} disabled={soloLectura}>
                   <Field.Label>Número de comprobante</Field.Label>
@@ -467,22 +587,36 @@ export function Revision() {
                     disabled={soloLectura}
                     onChange={(event) => actualizar("numero_comprobante", event.target.value)}
                   />
-                  <Field.HelperText>Opcional.</Field.HelperText>
+                  <Field.HelperText color="fg.muted">Opcional.</Field.HelperText>
                   {errores.numero_comprobante ? (
-                    <Field.ErrorText>{errores.numero_comprobante}</Field.ErrorText>
+                    <Field.ErrorText color="estado.falla">{errores.numero_comprobante}</Field.ErrorText>
                   ) : null}
                 </Field.Root>
                 {esBorrador(documento) ? (
                   <Flex gap={3} wrap="wrap">
-                    <Button type="submit" loading={guardando}>
+                    <Button
+                      type="submit"
+                      loading={guardando}
+                      borderRadius="full"
+                      css={{
+                        bg: "marca.carbon",
+                        color: "marca.papel",
+                        _hover: { bg: "marca.grafito" },
+                      }}
+                    >
                       Confirmar
                     </Button>
                     <Button
                       type="button"
                       variant="outline"
-                      colorPalette="red"
+                      borderRadius="full"
                       disabled={guardando}
                       onClick={() => void descartar()}
+                      css={{
+                        color: "estado.falla",
+                        borderColor: "estado.falla",
+                        _hover: { bg: "estado.fallaFondo" },
+                      }}
                     >
                       Descartar
                     </Button>
@@ -491,25 +625,42 @@ export function Revision() {
                 {!esBorrador(documento) && !documento.anulado ? (
                   <Flex gap={3} wrap="wrap">
                     {corrigiendo ? (
-                      <Button type="submit" loading={guardando}>
-                        Corregir
+                      <Button
+                        type="submit"
+                        loading={guardando}
+                        borderRadius="full"
+                        css={{
+                          bg: "marca.carbon",
+                          color: "marca.papel",
+                          _hover: { bg: "marca.grafito" },
+                        }}
+                      >
+                        Guardar
                       </Button>
-                    ) : (
-                      <Button type="button" disabled={guardando} onClick={() => setCorrigiendo(true)}>
-                        Corregir
-                      </Button>
-                    )}
+                    ) : null}
                     {corrigiendo ? (
-                      <Button type="button" variant="ghost" disabled={guardando} onClick={cancelarCorreccion}>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        borderRadius="full"
+                        disabled={guardando}
+                        onClick={cancelarCorreccion}
+                        css={{ color: "marca.carbon", _hover: { bg: "marca.alabastro" } }}
+                      >
                         Cancelar
                       </Button>
                     ) : null}
                     <Button
                       type="button"
                       variant="outline"
-                      colorPalette="red"
+                      borderRadius="full"
                       disabled={guardando}
                       onClick={() => void anular()}
+                      css={{
+                        color: "estado.falla",
+                        borderColor: "estado.falla",
+                        _hover: { bg: "estado.fallaFondo" },
+                      }}
                     >
                       Anular
                     </Button>

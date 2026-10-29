@@ -31,7 +31,6 @@ export type CamposDocumento = {
   periodo?: string
   monto?: string
   moneda?: string
-  vencimiento?: string
   numero_comprobante?: string
 }
 
@@ -81,7 +80,6 @@ export type Factura = {
   periodo: string
   monto: string
   moneda: string
-  vencimiento: string | null
   numero_comprobante: string | null
 }
 

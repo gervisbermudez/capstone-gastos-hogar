@@ -1,42 +1,32 @@
-import { Alert, Box, Button, Card, EmptyState, Flex, Heading, HStack, Spinner, Stack, Text, Textarea } from "@chakra-ui/react"
+import { Alert, Box, CloseButton, Drawer, Flex, HStack, Portal, Spinner, Stack, Text } from "@chakra-ui/react"
 import { useEffect, useRef, useState } from "react"
-import { Link } from "react-router"
+import { useLocation, useNavigate, useSearchParams } from "react-router"
 import { ErrorApi, cliente, esAbort } from "../api/cliente"
-import type { Hilo, TareaEstado } from "../api/tipos"
+import type { DocumentoDetalle, Hilo, TareaEstado } from "../api/tipos"
 import {
   TOPE_TRANSCRIPTO,
   guardarConsultaPendiente,
+  guardarContextoChat,
   guardarHilo,
   guardarJobPendiente,
   guardarTranscripto,
+  leerContextoChat,
   leerConsultaPendiente,
   leerHilo,
   leerJobAplicado,
   leerJobPendiente,
   leerTranscripto,
   olvidarConsultaPendiente,
+  olvidarContextoChat,
   olvidarHilo,
-  olvidarJobAplicado,
   olvidarJobPendiente,
-  olvidarTranscripto,
   type MensajeGuardado,
 } from "../almacen"
-
-const EJEMPLOS = [
-  "¿Cuánto pagué de expensas en marzo?",
-  "Compará la luz de enero contra febrero.",
-  "¿Qué dice la factura de alquiler sobre el ajuste?",
-]
-
-const ETIQUETAS_FICHA = ["Acción", "Motivo", "Pedido", "Datos"] as const
-
-const UUID = "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+import { citaComprobante, fotoDesdeCita, textoVisible, tituloVisible } from "../chat/contexto"
+import { Compositor, EncabezadoChat, EstadoVacio, MensajeChat, fotoDeAdjunto } from "../componentes/chat/Conversacion"
+import { ListaConversaciones } from "../componentes/chat/ListaConversaciones"
 
 type Mensaje = MensajeGuardado
-
-type LineaFicha = { etiqueta: (typeof ETIQUETAS_FICHA)[number]; valor: string }
-
-type Trozo = { tipo: "texto"; texto: string } | { tipo: "enlace"; texto: string; href: string }
 
 type AccionesChat = {
   observarHilo: (threadId: string) => void
@@ -49,7 +39,13 @@ function nuevoId(): string {
 }
 
 function mensajeDesdeServidor(rol: "persona" | "asistente" | "nota", texto: string): Mensaje {
-  if (rol === "persona") return { id: nuevoId(), tipo: "persona", texto }
+  if (rol === "persona") {
+    const adjunto = fotoDesdeCita(texto)
+    const visible = textoVisible(texto)
+    return adjunto
+      ? { id: nuevoId(), tipo: "persona", texto: visible, adjunto }
+      : { id: nuevoId(), tipo: "persona", texto: visible }
+  }
   if (rol === "asistente") return { id: nuevoId(), tipo: "asistente", texto }
   return { id: nuevoId(), tipo: "nota", texto }
 }
@@ -68,20 +64,74 @@ function esperar(ms: number, signal: AbortSignal): Promise<void> {
   })
 }
 
+const REINTENTOS_SOCKET = 3
+
+function anotarEstado(
+  estado: TareaEstado,
+  puedePararEnAprobacion: boolean,
+  alHilo?: (threadId: string) => void,
+): { puedePararEnAprobacion: boolean; listo: boolean } {
+  guardarHilo(estado.thread_id)
+  alHilo?.(estado.thread_id)
+  if (estado.status === "DONE" || estado.status === "FAILED") {
+    return { puedePararEnAprobacion, listo: true }
+  }
+  if (estado.status === "AWAITING_APPROVAL" && puedePararEnAprobacion) {
+    return { puedePararEnAprobacion, listo: true }
+  }
+  return {
+    puedePararEnAprobacion: estado.status === "AWAITING_APPROVAL" ? puedePararEnAprobacion : true,
+    listo: false,
+  }
+}
+
 async function seguir(
   jobId: string,
   signal: AbortSignal,
   saltarAprobacionActual: boolean,
   alHilo?: (threadId: string) => void,
 ): Promise<TareaEstado> {
+  // Un socket recibe cada cambio. Si no abre, se vuelve al GET cada 1 s.
   let puedePararEnAprobacion = !saltarAprobacionActual
+  let usarSocket = true
+  let cortes = 0
   for (;;) {
-    const estado = await cliente.verTarea(jobId, signal)
-    guardarHilo(estado.thread_id)
-    alHilo?.(estado.thread_id)
-    if (estado.status === "DONE" || estado.status === "FAILED") return estado
-    if (estado.status === "AWAITING_APPROVAL" && puedePararEnAprobacion) return estado
-    if (estado.status !== "AWAITING_APPROVAL") puedePararEnAprobacion = true
+    if (!usarSocket) {
+      const estado = await cliente.verTarea(jobId, signal)
+      const paso = anotarEstado(estado, puedePararEnAprobacion, alHilo)
+      puedePararEnAprobacion = paso.puedePararEnAprobacion
+      if (paso.listo) return estado
+      await esperar(1000, signal)
+      continue
+    }
+
+    if (signal.aborted) throw new DOMException("aborted", "AbortError")
+    let recibio = false
+    let listo: TareaEstado | null = null
+    try {
+      for await (const estado of cliente.eventosTarea(jobId, signal)) {
+        if (listo) continue
+        recibio = true
+        const paso = anotarEstado(estado, puedePararEnAprobacion, alHilo)
+        puedePararEnAprobacion = paso.puedePararEnAprobacion
+        if (paso.listo) listo = estado
+      }
+    } catch (error) {
+      const conserva = listo !== null && !signal.aborted && !esAbort(error)
+      if (!conserva) {
+        if (esAbort(error) || signal.aborted) {
+          throw esAbort(error) ? error : new DOMException("aborted", "AbortError")
+        }
+        if (error instanceof ErrorApi && error.status !== 0) throw error
+      }
+    }
+    if (listo) return listo
+    if (!recibio) {
+      cortes += 1
+      if (cortes >= REINTENTOS_SOCKET) usarSocket = false
+    } else {
+      cortes = 0
+    }
     await esperar(1000, signal)
   }
 }
@@ -89,92 +139,110 @@ async function seguir(
 function personaYaRegistrada(mensajes: readonly Mensaje[], texto: string): boolean {
   for (let i = mensajes.length - 1; i >= 0; i--) {
     const mensaje = mensajes[i]
-    if (mensaje?.tipo === "persona") return mensaje.texto === texto
+    if (mensaje?.tipo === "persona") return textoVisible(mensaje.texto) === texto
   }
   return false
 }
 
-function trozosConEnlaces(texto: string): Trozo[] {
-  const patron = new RegExp(`\\[comprobante ([^\\s|\\]]+)(?:\\s*\\|[^\\]]*)?\\]|\\bBorrador:\\s*(${UUID})`, "g")
-  const trozos: Trozo[] = []
-  let cursor = 0
-  for (const coincidencia of texto.matchAll(patron)) {
-    const inicio = coincidencia.index ?? cursor
-    if (inicio > cursor) trozos.push({ tipo: "texto", texto: texto.slice(cursor, inicio) })
-    const id = coincidencia[1] || coincidencia[2]
-    if (id) {
-      trozos.push({ tipo: "enlace", texto: coincidencia[0], href: `/documentos/${encodeURIComponent(id)}` })
+function tituloDe(hilos: Hilo[] | null, activo: string | null, mensajes: readonly Mensaje[]): string {
+  if (!activo) return "Nueva conversación"
+  const guardado = hilos?.find((hilo) => hilo.thread_id === activo)?.titulo.trim()
+  if (guardado) return tituloVisible(guardado)
+  const persona = mensajes.find((mensaje) => mensaje.tipo === "persona")
+  if (persona?.tipo === "persona" && persona.texto.trim()) return tituloVisible(persona.texto)
+  return "Conversación"
+}
+
+function hilosConActual(hilos: Hilo[] | null, activo: string | null, mensajes: readonly Mensaje[]): Hilo[] | null {
+  if (!hilos || !activo || hilos.some((hilo) => hilo.thread_id === activo)) return hilos
+  const persona = mensajes.find((mensaje) => mensaje.tipo === "persona")
+  const titulo = persona?.tipo === "persona" && persona.texto.trim() ? persona.texto.trim() : "Nueva conversación"
+  return [{ thread_id: activo, titulo, actualizado_en: new Date().toISOString() }, ...hilos]
+}
+
+const AVISO_CONSULTA_ABIERTA =
+  "Hay una consulta sin terminar. No abrí un chat nuevo sobre este comprobante."
+
+type EntradaChat = {
+  hilo: string | null
+  mensajes: Mensaje[]
+  contextoId: string | null
+  avisoNuevo: string | null
+}
+
+function idNuevo(state: unknown): string | null {
+  if (!state || typeof state !== "object" || !("nuevoComprobante" in state)) return null
+  const valor = (state as { nuevoComprobante?: unknown }).nuevoComprobante
+  return typeof valor === "string" && valor !== "" ? valor : null
+}
+
+function aprobacionAbierta(hilo: string | null): boolean {
+  if (!hilo) return false
+  return leerTranscripto(hilo).some((mensaje) => mensaje.tipo === "aprobacion" && mensaje.resuelta === null)
+}
+
+function prepararEntrada(comprobanteId: string | null, iniciarNuevo: boolean): EntradaChat {
+  const hiloActual = leerHilo()
+  const bloqueado = leerJobPendiente() !== null || aprobacionAbierta(hiloActual)
+  if (comprobanteId && iniciarNuevo) {
+    if (bloqueado) {
+      return {
+        hilo: hiloActual,
+        mensajes: hiloActual ? leerTranscripto(hiloActual) : [],
+        contextoId: null,
+        avisoNuevo: AVISO_CONSULTA_ABIERTA,
+      }
     }
-    cursor = inicio + coincidencia[0].length
+    olvidarHilo()
+    guardarContextoChat({ comprobanteId, threadId: null })
+    return { hilo: null, mensajes: [], contextoId: comprobanteId, avisoNuevo: null }
   }
-  if (cursor < texto.length) trozos.push({ tipo: "texto", texto: texto.slice(cursor) })
-  return trozos.length > 0 ? trozos : [{ tipo: "texto", texto }]
-}
-
-function TextoConEnlaces({ texto }: { texto: string }) {
-  return (
-    <>
-      {trozosConEnlaces(texto).map((trozo, indice) =>
-        trozo.tipo === "enlace" ? (
-          <Link key={`${trozo.href}-${indice}`} to={trozo.href} style={{ textDecoration: "underline" }}>
-            {trozo.texto}
-          </Link>
-        ) : (
-          <span key={`texto-${indice}`}>{trozo.texto}</span>
-        ),
-      )}
-    </>
-  )
-}
-
-function leerLineasFicha(texto: string): LineaFicha[] | null {
-  const halladas: LineaFicha[] = []
-  for (const cruda of texto.split(/\r?\n/)) {
-    const limpia = cruda.trim()
-    for (const etiqueta of ETIQUETAS_FICHA) {
-      const prefijo = `${etiqueta}:`
-      if (!limpia.startsWith(prefijo)) continue
-      halladas.push({ etiqueta, valor: limpia.slice(prefijo.length).trim() })
-      break
+  const guardado = leerContextoChat()
+  if (comprobanteId && guardado?.comprobanteId === comprobanteId) {
+    if (guardado.threadId) {
+      guardarHilo(guardado.threadId)
+      return {
+        hilo: guardado.threadId,
+        mensajes: leerTranscripto(guardado.threadId),
+        contextoId: comprobanteId,
+        avisoNuevo: null,
+      }
     }
+    return { hilo: null, mensajes: [], contextoId: comprobanteId, avisoNuevo: null }
   }
-  return halladas.length > 0 ? halladas : null
+  return {
+    hilo: hiloActual,
+    mensajes: hiloActual ? leerTranscripto(hiloActual) : [],
+    contextoId: null,
+    avisoNuevo: null,
+  }
 }
 
-function DetalleFicha({ texto }: { texto: string }) {
-  const lineas = leerLineasFicha(texto)
-  if (!lineas) {
-    return (
-      <Alert.Description>
-        <TextoConEnlaces texto={texto} />
-      </Alert.Description>
-    )
-  }
-  return (
-    <Alert.Description>
-      <Stack gap={1}>
-        {lineas.map((linea, indice) => (
-          <Text key={`${linea.etiqueta}-${indice}`} whiteSpace="pre-wrap" overflowWrap="anywhere">
-            <Text as="span" fontWeight="medium">
-              {linea.etiqueta}:{" "}
-            </Text>
-            <TextoConEnlaces texto={linea.valor} />
-          </Text>
-        ))}
-      </Stack>
-    </Alert.Description>
-  )
-}
-
-function estadoInicial(): { hilo: string | null; mensajes: Mensaje[] } {
-  const hilo = leerHilo()
-  return { hilo, mensajes: hilo ? leerTranscripto(hilo) : [] }
+function hilosLimpios(hilos: Hilo[] | null): Hilo[] | null {
+  if (!hilos) return null
+  return hilos.map((hilo) => {
+    const titulo = tituloVisible(hilo.titulo)
+    if (titulo === hilo.titulo) return hilo
+    return { ...hilo, titulo }
+  })
 }
 
 export function Chat() {
-  const [inicial] = useState(estadoInicial)
+  const [params, setSearchParams] = useSearchParams()
+  const location = useLocation()
+  const navigate = useNavigate()
+  const comprobanteParam = params.get("comprobante")
+  const iniciarNuevo = idNuevo(location.state) === comprobanteParam && comprobanteParam !== null
+  const [inicial] = useState(() => prepararEntrada(comprobanteParam, iniciarNuevo))
   const hiloRef = useRef(inicial.hilo)
   const [hiloActivo, setHiloActivo] = useState<string | null>(inicial.hilo)
+  const [contextoId, setContextoId] = useState<string | null>(inicial.contextoId)
+  const contextoIdRef = useRef(inicial.contextoId)
+  const [ficha, setFicha] = useState<DocumentoDetalle | null>(null)
+  const fichaRef = useRef<DocumentoDetalle | null>(null)
+  const [cargandoFicha, setCargandoFicha] = useState(() => Boolean(inicial.contextoId))
+  const [fallaFicha, setFallaFicha] = useState(false)
+  const [avisoNuevo, setAvisoNuevo] = useState<string | null>(inicial.avisoNuevo)
   const [hilos, setHilos] = useState<Hilo[] | null>(null)
   const [errorHilos, setErrorHilos] = useState<string | null>(null)
   const [versionHilos, setVersionHilos] = useState(0)
@@ -185,9 +253,11 @@ export function Chat() {
   const [ocupado, setOcupado] = useState(() => leerJobPendiente() !== null)
   const [fase, setFase] = useState<"consulta" | "decision" | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [historialAbierto, setHistorialAbierto] = useState(false)
   const abortar = useRef<AbortController | null>(null)
   const cargaHilo = useRef<AbortController | null>(null)
   const vivo = useRef(true)
+  const pegado = useRef(true)
   const lista = useRef<HTMLDivElement>(null)
   const acciones = useRef<AccionesChat | null>(null)
   const hayPendiente = mensajes.some((mensaje) => mensaje.tipo === "aprobacion" && mensaje.resuelta === null)
@@ -200,8 +270,39 @@ export function Chat() {
     if (hilo) guardarTranscripto(hilo, recortados, jobAplicado)
   }
 
+  contextoIdRef.current = contextoId
+
+  function recordarContexto(threadId: string) {
+    const id = contextoIdRef.current
+    if (!id || !threadId) return
+    const actual = leerContextoChat()
+    if (actual?.comprobanteId === id && actual.threadId === threadId) return
+    guardarContextoChat({ comprobanteId: id, threadId })
+  }
+
+  function soltarContexto() {
+    contextoIdRef.current = null
+    setContextoId(null)
+    fichaRef.current = null
+    setFicha(null)
+    setFallaFicha(false)
+    setCargandoFicha(false)
+    olvidarContextoChat()
+    setAvisoNuevo(null)
+    setSearchParams(
+      (actuales) => {
+        if (!actuales.has("comprobante")) return actuales
+        const siguientes = new URLSearchParams(actuales)
+        siguientes.delete("comprobante")
+        return siguientes
+      },
+      { replace: true },
+    )
+  }
+
   function observarHilo(threadId: string) {
     if (!threadId) return
+    recordarContexto(threadId)
     const anterior = hiloRef.current
     if (anterior === threadId) return
     if (anterior) {
@@ -278,6 +379,55 @@ export function Chat() {
 
   acciones.current = { observarHilo, aplicar, reponerPersona }
 
+  const entradaInicial = useRef({
+    iniciarNuevo,
+    comprobanteId: comprobanteParam,
+    aviso: inicial.avisoNuevo,
+  })
+
+  useEffect(() => {
+    const entrada = entradaInicial.current
+    if (!entrada.iniciarNuevo) return
+    if (entrada.aviso || !entrada.comprobanteId) {
+      navigate("/chat", { replace: true, state: null })
+      return
+    }
+    navigate(
+      { pathname: "/chat", search: `?comprobante=${encodeURIComponent(entrada.comprobanteId)}` },
+      { replace: true, state: null },
+    )
+  }, [navigate])
+
+  useEffect(() => {
+    if (!contextoId) {
+      fichaRef.current = null
+      setFicha(null)
+      setFallaFicha(false)
+      setCargandoFicha(false)
+      return
+    }
+    const ctrl = new AbortController()
+    setCargandoFicha(true)
+    setFallaFicha(false)
+    cliente
+      .verDocumento(contextoId, ctrl.signal)
+      .then((dato) => {
+        fichaRef.current = dato
+        setFicha(dato)
+        setFallaFicha(false)
+      })
+      .catch((falla: unknown) => {
+        if (esAbort(falla)) return
+        fichaRef.current = null
+        setFicha(null)
+        setFallaFicha(true)
+      })
+      .finally(() => {
+        if (!ctrl.signal.aborted) setCargandoFicha(false)
+      })
+    return () => ctrl.abort()
+  }, [contextoId])
+
   useEffect(() => {
     const ctrl = new AbortController()
     let cancelado = false
@@ -347,16 +497,41 @@ export function Chat() {
   }, [])
 
   useEffect(() => {
+    if (!pegado.current) return
     lista.current?.scrollTo({ top: lista.current.scrollHeight })
-  }, [mensajes, ocupado])
+  }, [mensajes, ocupado, cargandoHilo])
+
+  function alDesplazar() {
+    const nodo = lista.current
+    if (!nodo) return
+    pegado.current = nodo.scrollHeight - nodo.scrollTop - nodo.clientHeight < 80
+  }
 
   async function enviar(texto: string) {
     const query = texto.trim()
     if (!query || ocupado || hayPendiente) return
+    pegado.current = true
+    const idContexto = contextoIdRef.current
+    const documento = fichaRef.current
+    const adjunto = idContexto
+      ? fotoDeAdjunto({
+          id: idContexto,
+          documento,
+          cargando: documento ? false : cargandoFicha,
+          falla: documento ? false : fallaFicha,
+        })
+      : undefined
+    const queryApi = idContexto ? `${citaComprobante(idContexto, documento?.campos)}\n${query}` : query
     setBorrador("")
     setError(null)
+    if (idContexto) soltarContexto()
     guardarConsultaPendiente(query)
-    publicar([...mensajesRef.current, { id: nuevoId(), tipo: "persona", texto: query }])
+    publicar([
+      ...mensajesRef.current,
+      adjunto
+        ? { id: nuevoId(), tipo: "persona", texto: query, adjunto }
+        : { id: nuevoId(), tipo: "persona", texto: query },
+    ])
     setOcupado(true)
     setFase("consulta")
     abortar.current?.abort()
@@ -364,7 +539,7 @@ export function Chat() {
     abortar.current = ctrl
     let conJob = false
     try {
-      const creada = await cliente.crearTarea({ query, thread_id: hiloRef.current })
+      const creada = await cliente.crearTarea({ query: queryApi, thread_id: hiloRef.current })
       guardarJobPendiente(creada.job_id)
       conJob = true
       observarHilo(creada.thread_id)
@@ -419,6 +594,8 @@ export function Chat() {
   async function abrirHilo(threadId: string) {
     if (ocupado || hayPendiente) return
     if (threadId === hiloRef.current && mensajesRef.current.length > 0) return
+    const dejarContexto = Boolean(contextoIdRef.current && leerContextoChat()?.threadId !== threadId)
+    pegado.current = true
     cargaHilo.current?.abort()
     const anterior = hiloRef.current
     if (anterior && anterior !== threadId) guardarTranscripto(anterior, mensajesRef.current)
@@ -428,6 +605,8 @@ export function Chat() {
     setError(null)
     const local = leerTranscripto(threadId)
     if (local.length > 0) {
+      if (dejarContexto) soltarContexto()
+      else recordarContexto(threadId)
       mensajesRef.current = local
       setMensajes(local)
       setCargandoHilo(false)
@@ -441,6 +620,8 @@ export function Chat() {
     try {
       const detalle = await cliente.verHilo(threadId, ctrl.signal)
       if (!vivo.current || hiloRef.current !== threadId) return
+      if (dejarContexto) soltarContexto()
+      else recordarContexto(threadId)
       const traidos = detalle.mensajes
         .slice(-TOPE_TRANSCRIPTO)
         .map((mensaje) => mensajeDesdeServidor(mensaje.rol, mensaje.texto))
@@ -471,10 +652,12 @@ export function Chat() {
   }
 
   function nueva() {
-    if (ocupado) return
+    if (ocupado || hayPendiente) return
     abortar.current?.abort()
     cargaHilo.current?.abort()
-    const hilo = hiloRef.current ?? leerHilo()
+    pegado.current = true
+    const hilo = hiloRef.current
+    if (hilo && mensajesRef.current.length > 0) guardarTranscripto(hilo, mensajesRef.current)
     hiloRef.current = null
     setHiloActivo(null)
     mensajesRef.current = []
@@ -482,187 +665,139 @@ export function Chat() {
     setCargandoHilo(false)
     setError(null)
     setBorrador("")
-    if (hilo) {
-      olvidarTranscripto(hilo)
-      olvidarJobAplicado(hilo)
-    }
     olvidarHilo()
+    soltarContexto()
   }
 
+  function reintentarHilos() {
+    setErrorHilos(null)
+    setVersionHilos((valor) => valor + 1)
+  }
+
+  function empezarNueva() {
+    setHistorialAbierto(false)
+    nueva()
+  }
+
+  function elegirHilo(threadId: string) {
+    setHistorialAbierto(false)
+    void abrirHilo(threadId)
+  }
+
+  const bloqueado = ocupado || hayPendiente
+  const titulo = tituloDe(hilos, hiloActivo, mensajes)
+  const historial = hilosLimpios(hilosConActual(hilos, hiloActivo, mensajes))
+
   return (
-    <Stack gap={4}>
-      <Flex justify="space-between" gap={3} align={{ base: "stretch", sm: "center" }} direction={{ base: "column", sm: "row" }}>
-        <Heading size="lg">Chat</Heading>
-        <Button variant="outline" onClick={nueva} disabled={ocupado}>
-          Nueva conversación
-        </Button>
-      </Flex>
-      <Text color="fg.muted">
-        Los montos salen de los comprobantes confirmados. Lo que dice una factura sale del texto indexado. La pregunta se encola.
-      </Text>
-      {hilos === null && !errorHilos ? (
-        <Text fontSize="sm" color="fg.muted">
-          Cargando conversaciones…
-        </Text>
-      ) : null}
-      {errorHilos ? (
-        <Alert.Root status="error">
-          <Alert.Indicator />
-          <Alert.Description>{errorHilos}</Alert.Description>
-        </Alert.Root>
-      ) : null}
-      {hilos && hilos.length > 0 ? (
-        <Stack gap={2}>
-          <Text fontWeight="medium">Conversaciones</Text>
-          <Flex gap={2} flexWrap="wrap">
-            {hilos.map((hilo) => (
-              <Button
-                key={hilo.thread_id}
-                size="sm"
-                variant={hilo.thread_id === hiloActivo ? "solid" : "outline"}
-                height="auto"
-                maxW="100%"
-                whiteSpace="normal"
-                textAlign="left"
-                py={2}
-                disabled={ocupado || hayPendiente}
-                aria-pressed={hilo.thread_id === hiloActivo}
-                onClick={() => void abrirHilo(hilo.thread_id)}
-              >
-                {hilo.titulo.trim() || "Sin título"}
-              </Button>
-            ))}
-          </Flex>
-        </Stack>
-      ) : null}
-      <Flex gap={2} flexWrap="wrap">
-        {EJEMPLOS.map((ejemplo) => (
-          <Button
-            key={ejemplo}
-            size="sm"
-            variant="outline"
-            height="auto"
-            whiteSpace="normal"
-            textAlign="left"
-            py={2}
-            disabled={ocupado || hayPendiente}
-            onClick={() => void enviar(ejemplo)}
-          >
-            {ejemplo}
-          </Button>
-        ))}
-      </Flex>
-      <Card.Root>
-        <Card.Body>
-          <Stack gap={3}>
-            <Box ref={lista} aria-live="polite" maxH={{ base: "55vh", md: "28rem" }} overflowY="auto">
-              {cargandoHilo && mensajes.length === 0 ? (
-                <HStack>
-                  <Spinner size="sm" />
-                  <Text>Abriendo la conversación…</Text>
-                </HStack>
-              ) : mensajes.length === 0 && !ocupado ? (
-                <EmptyState.Root size="sm">
-                  <EmptyState.Content>
-                    <EmptyState.Title>Todavía no hay mensajes</EmptyState.Title>
-                    <EmptyState.Description>
-                      Preguntá cuánto pagaste, compará dos períodos o pedí el texto de una factura.
-                    </EmptyState.Description>
-                  </EmptyState.Content>
-                </EmptyState.Root>
-              ) : (
-                <Stack gap={3}>
-                  {mensajes.map((mensaje) => {
-                    if (mensaje.tipo === "aprobacion") {
-                      return (
-                        <Alert.Root key={mensaje.id} status="warning">
-                          <Alert.Indicator />
-                          <Alert.Content>
-                            <Alert.Title>
-                              {mensaje.resuelta === "si"
-                                ? "Aprobaste la acción."
-                                : mensaje.resuelta === "no"
-                                  ? "Rechazaste la acción."
-                                  : "Hace falta tu decisión"}
-                            </Alert.Title>
-                            <DetalleFicha texto={mensaje.texto} />
-                            {mensaje.resuelta === null ? (
-                              <HStack mt={3}>
-                                <Button
-                                  size="sm"
-                                  colorPalette="green"
-                                  disabled={ocupado}
-                                  onClick={() => void decidir(mensaje.jobId, true)}
-                                >
-                                  Aprobar
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  colorPalette="red"
-                                  disabled={ocupado}
-                                  onClick={() => void decidir(mensaje.jobId, false)}
-                                >
-                                  Rechazar
-                                </Button>
-                              </HStack>
-                            ) : null}
-                          </Alert.Content>
-                        </Alert.Root>
-                      )
-                    }
-                    const propio = mensaje.tipo === "persona"
-                    return (
-                      <Card.Root key={mensaje.id} variant={propio ? "subtle" : "outline"} colorPalette={propio ? "blue" : undefined}>
-                        <Card.Body py={3}>
-                          <Text fontSize="sm" color="fg.muted" mb={1}>
-                            {propio ? "Vos" : mensaje.tipo === "asistente" ? "Asistente" : "Estado"}
-                          </Text>
-                          <Text whiteSpace="pre-wrap" overflowWrap="anywhere">
-                            {mensaje.tipo === "asistente" ? <TextoConEnlaces texto={mensaje.texto} /> : mensaje.texto}
-                          </Text>
-                        </Card.Body>
-                      </Card.Root>
-                    )
-                  })}
-                  {ocupado ? (
-                    <HStack>
-                      <Spinner size="sm" />
-                      <Text>{fase === "decision" ? "Aplicando la decisión…" : "Consultando…"}</Text>
-                    </HStack>
-                  ) : null}
-                </Stack>
-              )}
+    <Drawer.Root placement="start" open={historialAbierto} onOpenChange={(detalle) => setHistorialAbierto(detalle.open)}>
+      <Flex flex="1" minH={0} minW={0} bg="transparent">
+        <Box
+          display={{ base: "none", lg: "flex" }}
+          flexDirection="column"
+          w="280px"
+          flexShrink={0}
+          minH={0}
+          bg="marca.alabastro"
+          borderRightWidth="1px"
+          borderColor="rgba(28, 28, 26, 0.08)"
+        >
+          <ListaConversaciones
+            hilos={historial}
+            error={hilos === null ? errorHilos : null}
+            activoId={hiloActivo}
+            bloqueado={bloqueado}
+            onNueva={empezarNueva}
+            onAbrir={elegirHilo}
+            onReintentar={reintentarHilos}
+          />
+        </Box>
+        <Flex direction="column" flex="1" minW={0} minH={0}>
+          <EncabezadoChat titulo={titulo} onAbrirHistorial={() => setHistorialAbierto(true)} />
+          {avisoNuevo ? (
+            <Box px={{ base: 4, md: 6 }} pt={3}>
+              <Alert.Root status="warning">
+                <Alert.Indicator />
+                <Alert.Description>{avisoNuevo}</Alert.Description>
+              </Alert.Root>
             </Box>
+          ) : null}
+          <Box ref={lista} aria-live="polite" flex="1" minH={0} overflowY="auto" px={{ base: 4, md: 6 }} py={4} onScroll={alDesplazar}>
+            {cargandoHilo && mensajes.length === 0 ? (
+              <Flex align="center" justify="center" minH="100%">
+                <HStack>
+                  <Spinner size="sm" color="marca.carbon" />
+                  <Text color="marca.carbon">Abriendo la conversación…</Text>
+                </HStack>
+              </Flex>
+            ) : mensajes.length === 0 && !ocupado ? (
+              <Flex align="center" justify="center" minH="100%">
+                <EstadoVacio bloqueado={bloqueado} onElegir={(texto) => void enviar(texto)} />
+              </Flex>
+            ) : (
+              <Stack gap={3}>
+                {mensajes.map((mensaje) => (
+                  <MensajeChat
+                    key={mensaje.id}
+                    mensaje={mensaje}
+                    ocupado={ocupado}
+                    onDecidir={(jobId, aprobado) => void decidir(jobId, aprobado)}
+                  />
+                ))}
+                {ocupado ? (
+                  <HStack>
+                    <Spinner size="sm" color="marca.carbon" />
+                    <Text color="marca.carbon">{fase === "decision" ? "Aplicando la decisión…" : "Consultando…"}</Text>
+                  </HStack>
+                ) : null}
+              </Stack>
+            )}
+          </Box>
+          <Box flexShrink={0} px={{ base: 4, md: 6 }} pt={3} pb={4} borderTopWidth="1px" borderColor="rgba(28, 28, 26, 0.08)">
             {error ? (
-              <Alert.Root status="error">
+              <Alert.Root status="error" mb={3}>
                 <Alert.Indicator />
                 <Alert.Description>{error}</Alert.Description>
               </Alert.Root>
             ) : null}
-            <form
-              onSubmit={(event) => {
-                event.preventDefault()
-                void enviar(borrador)
-              }}
-            >
-              <Stack direction={{ base: "column", sm: "row" }} gap={3} align={{ sm: "flex-end" }}>
-                <Textarea
-                  value={borrador}
-                  rows={3}
-                  flex="1"
-                  disabled={ocupado || hayPendiente}
-                  placeholder="Escribí tu pregunta"
-                  onChange={(event) => setBorrador(event.target.value)}
-                />
-                <Button type="submit" loading={ocupado} disabled={hayPendiente}>
-                  Enviar
-                </Button>
-              </Stack>
-            </form>
-          </Stack>
-        </Card.Body>
-      </Card.Root>
-    </Stack>
+            <Compositor
+              valor={borrador}
+              ocupado={ocupado}
+              bloqueado={hayPendiente}
+              adjunto={
+                contextoId
+                  ? { id: contextoId, documento: ficha, cargando: cargandoFicha, falla: fallaFicha }
+                  : null
+              }
+              onQuitarAdjunto={soltarContexto}
+              onCambio={setBorrador}
+              onEnviar={() => void enviar(borrador)}
+            />
+          </Box>
+        </Flex>
+      </Flex>
+      <Portal>
+        <Drawer.Backdrop />
+        <Drawer.Positioner>
+          <Drawer.Content bg="marca.alabastro" color="marca.carbon" w="300px" maxW="85vw" h="100dvh">
+            <Drawer.Title srOnly>Conversaciones</Drawer.Title>
+            <Drawer.Body p={0} flex="1" minH={0} display="flex" flexDirection="column" overflow="hidden">
+              <ListaConversaciones
+                hilos={historial}
+                error={hilos === null ? errorHilos : null}
+                activoId={hiloActivo}
+                bloqueado={bloqueado}
+                onNueva={empezarNueva}
+                onAbrir={elegirHilo}
+                onReintentar={reintentarHilos}
+                conCierre
+              />
+            </Drawer.Body>
+            <Drawer.CloseTrigger asChild>
+              <CloseButton aria-label="Cerrar" color="marca.carbon" />
+            </Drawer.CloseTrigger>
+          </Drawer.Content>
+        </Drawer.Positioner>
+      </Portal>
+    </Drawer.Root>
   )
 }

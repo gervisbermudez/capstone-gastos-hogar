@@ -1,10 +1,29 @@
-import { Box, Flex, Stack, Text, useToken } from "@chakra-ui/react"
+import { Box, Flex, Stack, Text } from "@chakra-ui/react"
 import { Bar, BarChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
 import type { TooltipPayloadEntry } from "recharts"
 import { ETIQUETA_CATEGORIA, type Categoria, type TotalCategoria, type TotalMes } from "../api/tipos"
 import { formatMonto } from "../formato"
 
-const COLORES = ["blue.500", "teal.500", "orange.500", "purple.500"]
+const SOL = "#f5cb5c"
+const CARBON = "#1c1c1a"
+const DORADO = "#c4a15a"
+const TICK = { fontSize: 11, fill: "#5c584f" }
+const ESTILO_TOOLTIP = {
+  contentStyle: {
+    backgroundColor: "#fffdf8",
+    border: "1px solid rgba(28, 28, 26, 0.12)",
+    borderRadius: 12,
+    color: CARBON,
+  },
+  labelStyle: { color: CARBON },
+  itemStyle: { color: CARBON },
+}
+
+const COLOR_CATEGORIA: Record<Categoria, string> = {
+  servicios: SOL,
+  expensas: CARBON,
+  alquiler: DORADO,
+}
 
 type Punto = {
   clave: string
@@ -36,7 +55,9 @@ function ListaTotales({ puntos }: { puntos: Punto[] }) {
       {puntos.map((punto) => (
         <Flex key={punto.clave} justify="space-between" gap={4}>
           <Text>{punto.nombre}</Text>
-          <Text fontWeight="medium">{formatMonto(punto.total)}</Text>
+          <Text fontWeight="medium" fontVariantNumeric="tabular-nums">
+            {formatMonto(punto.total)}
+          </Text>
         </Flex>
       ))}
     </Stack>
@@ -44,7 +65,6 @@ function ListaTotales({ puntos }: { puntos: Punto[] }) {
 }
 
 export function GraficoMeses({ porMes }: { porMes: TotalMes[] }) {
-  const [azul] = useToken("colors", COLORES)
   const meses = [...porMes].sort((a, b) => a.periodo.localeCompare(b.periodo))
   const puntos = meses.map((item, indice) => {
     const valor = escala(item.total)
@@ -53,7 +73,7 @@ export function GraficoMeses({ porMes }: { porMes: TotalMes[] }) {
       nombre: item.periodo,
       total: item.total,
       valor: valor ?? 0,
-      color: azul || "currentColor",
+      color: SOL,
       dibuja: valor !== null,
     }
   })
@@ -75,16 +95,17 @@ export function GraficoMeses({ porMes }: { porMes: TotalMes[] }) {
                 angle={-40}
                 textAnchor="end"
                 height={56}
-                tick={{ fontSize: 11 }}
+                tick={TICK}
+                stroke="#5c584f"
               />
-              <YAxis width={72} tick={{ fontSize: 11 }} />
-              <Tooltip formatter={formatoTotal} />
-              <Bar dataKey="valor" name="Total" fill={azul} radius={[4, 4, 0, 0]} />
+              <YAxis width={72} tick={TICK} stroke="#5c584f" />
+              <Tooltip formatter={formatoTotal} {...ESTILO_TOOLTIP} />
+              <Bar dataKey="valor" name="Total" fill={SOL} barSize={14} radius={[6, 6, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </Box>
       ) : (
-        <Text color="fg.muted">El resumen no trajo totales dibujables.</Text>
+        <Text color="fg.muted">No hay montos para graficar en este período.</Text>
       )}
       <ListaTotales puntos={puntos} />
     </Stack>
@@ -92,12 +113,6 @@ export function GraficoMeses({ porMes }: { porMes: TotalMes[] }) {
 }
 
 export function GraficoCategorias({ porCategoria }: { porCategoria: TotalCategoria[] }) {
-  const colores = useToken("colors", COLORES)
-  const paleta: Record<Categoria, string> = {
-    servicios: colores[1] || colores[0] || "currentColor",
-    expensas: colores[2] || colores[0] || "currentColor",
-    alquiler: colores[3] || colores[0] || "currentColor",
-  }
   const puntos = porCategoria.map((item, indice) => {
     const valor = escala(item.total)
     return {
@@ -105,7 +120,7 @@ export function GraficoCategorias({ porCategoria }: { porCategoria: TotalCategor
       nombre: ETIQUETA_CATEGORIA[item.categoria],
       total: item.total,
       valor: valor ?? 0,
-      color: paleta[item.categoria],
+      color: COLOR_CATEGORIA[item.categoria],
       dibuja: valor !== null,
     }
   })
@@ -121,17 +136,28 @@ export function GraficoCategorias({ porCategoria }: { porCategoria: TotalCategor
         <Box h={{ base: "16rem", md: "18rem" }} w="100%">
           <ResponsiveContainer width="100%" height="100%">
             <PieChart>
-              <Pie data={dibujo} dataKey="valor" nameKey="nombre" outerRadius="75%" isAnimationActive={false}>
+              <Pie
+                data={dibujo}
+                dataKey="valor"
+                nameKey="nombre"
+                innerRadius="46.5%"
+                outerRadius="75%"
+                // 46.5 / 75 = 0.62: Recharts mide los dos radios sobre el máximo del gráfico.
+                paddingAngle={2}
+                cornerRadius={8}
+                stroke="none"
+                isAnimationActive={false}
+              >
                 {dibujo.map((punto) => (
                   <Cell key={punto.clave} fill={punto.color} />
                 ))}
               </Pie>
-              <Tooltip formatter={formatoTotal} />
+              <Tooltip formatter={formatoTotal} {...ESTILO_TOOLTIP} />
             </PieChart>
           </ResponsiveContainer>
         </Box>
       ) : (
-        <Text color="fg.muted">El resumen no trajo totales dibujables.</Text>
+        <Text color="fg.muted">No hay montos para graficar en este período.</Text>
       )}
       <ListaTotales puntos={puntos} />
     </Stack>

@@ -6,7 +6,6 @@ export type BorradorFactura = {
   periodo: string
   monto: string
   moneda: string
-  vencimiento: string
   numero_comprobante: string
 }
 
@@ -25,18 +24,6 @@ export function normalizarMonto(entrada: string): string | null {
   return null
 }
 
-function fechaValida(valor: string): boolean {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(valor)) return false
-  const [anio, mes, dia] = valor.split("-").map(Number)
-  if (anio === undefined || mes === undefined || dia === undefined) return false
-  const fecha = new Date(Date.UTC(anio, mes - 1, dia))
-  return (
-    fecha.getUTCFullYear() === anio &&
-    fecha.getUTCMonth() === mes - 1 &&
-    fecha.getUTCDate() === dia
-  )
-}
-
 export function armarFactura(
   form: BorradorFactura,
 ): { ok: true; factura: Factura } | { ok: false; errores: ErroresFactura } {
@@ -50,12 +37,6 @@ export function armarFactura(
   const monto = normalizarMonto(form.monto)
   if (!monto) errores.monto = "El monto tiene que ser un número con dos decimales"
   const moneda = form.moneda.trim() || "ARS"
-  let vencimiento: string | null = null
-  const vencimientoTexto = form.vencimiento.trim()
-  if (vencimientoTexto) {
-    if (!fechaValida(vencimientoTexto)) errores.vencimiento = "La fecha tiene que ser YYYY-MM-DD"
-    else vencimiento = vencimientoTexto
-  }
   if (Object.keys(errores).length > 0 || !monto || form.categoria === "") {
     return { ok: false, errores }
   }
@@ -67,7 +48,6 @@ export function armarFactura(
       periodo: form.periodo,
       monto,
       moneda,
-      vencimiento,
       numero_comprobante: form.numero_comprobante.trim() || null,
     },
   }
@@ -80,7 +60,6 @@ export function desdeCampos(campos: CamposDocumento): BorradorFactura {
     periodo: campos.periodo ?? "",
     monto: campos.monto ?? "",
     moneda: campos.moneda ?? "ARS",
-    vencimiento: campos.vencimiento ?? "",
     numero_comprobante: campos.numero_comprobante ?? "",
   }
 }

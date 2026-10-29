@@ -57,14 +57,21 @@ export function CargaComprobante({
   }
 
   return (
-    <Stack gap={4}>
+    <Stack gap={6}>
       <Text color="fg.muted">Un archivo por vez: jpeg, png, webp o pdf.</Text>
       {error ? (
-        <Alert.Root status="error">
-          <Alert.Indicator />
+        <Alert.Root
+          status="error"
+          css={{
+            borderRadius: "16px",
+            bg: "estado.fallaFondo",
+            color: "marca.carbon",
+          }}
+        >
+          <Alert.Indicator color="estado.falla" />
           <Alert.Content>
-            <Alert.Title>No se pudo cargar</Alert.Title>
-            <Alert.Description>{error}</Alert.Description>
+            <Alert.Title color="marca.carbon">No se pudo cargar</Alert.Title>
+            <Alert.Description color="marca.carbon">{error}</Alert.Description>
           </Alert.Content>
         </Alert.Root>
       ) : null}
@@ -78,9 +85,30 @@ export function CargaComprobante({
         onFileReject={alRechazar}
       >
         <FileUpload.HiddenInput />
-        <FileUpload.Dropzone w="100%">
+        <FileUpload.Dropzone
+          w="100%"
+          minH={{ base: "18rem", md: "24rem" }}
+          px={{ base: 6, md: 10 }}
+          py={{ base: 10, md: 14 }}
+          css={{
+            borderRadius: "20px",
+            bg: "marca.alabastro",
+            borderWidth: "2px",
+            borderStyle: "dashed",
+            borderColor: "rgba(28, 28, 26, 0.2)",
+            color: "marca.carbon",
+            _hover: { bg: "marca.lino" },
+            _dragging: {
+              bg: "rgba(245, 203, 92, 0.22)",
+              borderStyle: "solid",
+              borderColor: "marca.sol",
+            },
+          }}
+        >
           <FileUpload.DropzoneContent>
-            <Text>Arrastrá el comprobante o elegí un archivo</Text>
+            <Text color="marca.carbon" fontSize="lg" fontWeight="medium">
+              Arrastrá el comprobante o elegí un archivo
+            </Text>
             <Text color="fg.muted" fontSize="sm">
               jpeg, png, webp o pdf
             </Text>
@@ -99,7 +127,20 @@ export function CargaComprobante({
       >
         <FileUpload.HiddenInput />
         <FileUpload.Trigger asChild>
-          <Button variant="outline" type="button" loading={subiendo} loadingText="Leyendo…">
+          <Button
+            type="button"
+            loading={subiendo}
+            loadingText="Leyendo…"
+            borderRadius="full"
+            px={6}
+            css={{
+              bg: "marca.sol",
+              color: "marca.carbon",
+              borderColor: "transparent",
+              _hover: { bg: "#e8bc45" },
+              _expanded: { bg: "#e8bc45" },
+            }}
+          >
             Sacar foto
           </Button>
         </FileUpload.Trigger>
