@@ -13,6 +13,7 @@ import {
   suscribirCarga,
   type EstadoCarga,
 } from "../cargaActiva"
+import { BarraIndeterminada } from "../movimiento"
 import { ChipArchivo } from "./revision/ChipArchivo"
 
 const ACEPTADOS = {
@@ -72,13 +73,54 @@ function clasificar(archivo: File): { esImagen: boolean; esPdf: boolean; tipo: "
   return { esImagen: false, esPdf: false, tipo: "otro" }
 }
 
+function aceptable(archivo: File): boolean {
+  if (archivo.size <= 0 || archivo.size > TAMANO_MAXIMO_BYTES) return false
+  const { tipo } = clasificar(archivo)
+  return tipo === "pdf" || tipo === "imagen"
+}
+
+function mismoArchivo(a: File, b: File): boolean {
+  return a.name === b.name && a.size === b.size
+}
+
+// Chrome en Linux a veces suelta el mismo archivo otra vez como application/x-moz-file.
+function comprobanteUnico(rechazos: ReadonlyArray<{ file: File; errors: readonly string[] }>): File | null {
+  const soloTope = rechazos.every(
+    (item) =>
+      item.errors.includes("TOO_MANY_FILES") &&
+      !item.errors.includes("FILE_INVALID_TYPE") &&
+      !item.errors.includes("FILE_TOO_LARGE"),
+  )
+  if (!soloTope) return null
+  const validos = rechazos.map((item) => item.file).filter(aceptable)
+  const sinFantasma = validos.filter((archivo) => !esArrastreMoz(archivo))
+  const base = sinFantasma.length > 0 ? sinFantasma : validos
+  const lista: File[] = []
+  for (const archivo of base) {
+    if (lista.some((previo) => mismoArchivo(previo, archivo))) continue
+    lista.push(archivo)
+  }
+  return lista.length === 1 ? lista[0] : null
+}
+
+function esArrastreMoz(archivo: File): boolean {
+  const mime = archivo.type.split(";", 1)[0]?.trim().toLowerCase() ?? ""
+  return mime === "application/x-moz-file"
+}
+
+function esArrastreFantasma(archivo: File): boolean {
+  return esArrastreMoz(archivo) || (archivo.size === 0 && archivo.name.trim() === "")
+}
+
 function archivoEnCurso(estado: EstadoCarga): File | null {
-  if (estado.fase === "leyendo" || estado.fase === "extrayendo" || estado.fase === "falla") return estado.archivo
+  if (estado.fase === "leyendo" || estado.fase === "extrayendo" || estado.fase === "lista" || estado.fase === "falla") {
+    return estado.archivo
+  }
   return null
 }
 
 function ocupada(estado: EstadoCarga): boolean {
-  return estado.fase === "leyendo" || estado.fase === "extrayendo"
+  return estado.fase === "leyendo" || estado.fase === "extrayendo" || estado.fase === "lista"
 }
 
 function useVistaLocal(archivo: File | null): string | null {
@@ -143,11 +185,12 @@ function VistaPrevia({ archivo, url, leyendo }: { archivo: File; url: string | n
       {leyendo ? (
         <Flex position="absolute" inset={0} align="center" justify="center" borderRadius="20px" overflow="hidden">
           <Box position="absolute" inset={0} bg="bg.panel" opacity={0.92} />
-          <Stack position="relative" align="center" gap={3} px={6}>
+          <Stack position="relative" align="center" gap={3} px={6} w="100%">
             <EsqueletoDocumento />
             <Text color="fg" fontWeight="medium" textAlign="center">
               Leyendo el comprobante…
             </Text>
+            <BarraIndeterminada />
           </Stack>
         </Flex>
       ) : null}
@@ -171,17 +214,14 @@ export function CargaComprobante({
   const error = errorLocal ?? (remota.fase === "falla" ? remota.mensaje : null)
 
   useEffect(() => {
-    function aplicar(siguiente: EstadoCarga) {
-      if (siguiente.fase === "lista") {
-        const listo = consumirListo()
-        if (listo) alListo.current(listo.documento, listo.archivo)
-        return
-      }
-      setRemota(siguiente)
-    }
+    if (remota.fase !== "lista") return
+    const listo = consumirListo()
+    if (listo) alListo.current(listo.documento, listo.archivo)
+  }, [remota])
 
-    const baja = suscribirCarga(aplicar)
-    aplicar(leerCarga())
+  useEffect(() => {
+    const baja = suscribirCarga(setRemota)
+    setRemota(leerCarga())
     return baja
   }, [])
 
@@ -201,7 +241,7 @@ export function CargaComprobante({
     if (siguiente) tomar(siguiente)
   }
 
-  function alRechazar(detalles: { files: Array<{ errors: readonly string[] }> }) {
+  function alRechazar(detalles: { files: Array<{ file: File; errors: readonly string[] }> }) {
     if (ocupada(leerCarga())) return
     if (detalles.files.some((item) => item.errors.includes("FILE_TOO_LARGE"))) {
       setErrorLocal(MENSAJE_TAMANO)
@@ -214,6 +254,12 @@ export function CargaComprobante({
         !item.errors.includes("TOO_MANY_FILES"),
     )
     if (repetido) return
+    const recuperado = comprobanteUnico(detalles.files)
+    if (recuperado) {
+      tomar(recuperado)
+      return
+    }
+    if (detalles.files.every((item) => esArrastreFantasma(item.file))) return
     toaster.create({
       title: "Archivo no aceptado",
       description: "Un archivo por vez: jpeg, png, webp o pdf.",
@@ -393,11 +439,15 @@ export function CargaComprobante({
                 borderStyle: "dashed",
                 borderColor: "borde",
                 color: "fg",
+                transitionProperty: "background-color, background, border-color, transform",
+                transitionDuration: "140ms",
+                transitionTimingFunction: "cubic-bezier(0.22, 1, 0.36, 1)",
                 _hover: { bg: "bg" },
                 _dragging: {
                   bg: "rgba(245, 203, 92, 0.22)",
                   borderStyle: "solid",
                   borderColor: "marca.sol",
+                  transform: "scale(1.01)",
                 },
               }}
             >

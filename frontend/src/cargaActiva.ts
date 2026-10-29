@@ -1,4 +1,4 @@
-import { ErrorApi, cliente } from "./api/cliente"
+import { ErrorApi, cliente, esAbort } from "./api/cliente"
 import type { CargaEstado, DocumentoBorrador } from "./api/tipos"
 import { toaster } from "./avisos"
 import { canalConectado, cargaDeEvento, marcarLeidasDeRecurso, suscribirEventos } from "./canalBus"
@@ -28,8 +28,14 @@ type Oyente = (estado: EstadoCarga) => void
 
 let estado: EstadoCarga = { fase: "ociosa" }
 let generacion = 0
+let lectura: AbortController | null = null
 const oyentes = new Set<Oyente>()
 const alListo = new Set<() => void>()
+
+function cortarLectura(): void {
+  lectura?.abort()
+  lectura = null
+}
 
 export function leerCarga(): EstadoCarga {
   return estado
@@ -39,6 +45,7 @@ export function suscribirCarga(oyente: Oyente): () => void {
   oyentes.add(oyente)
   return () => {
     oyentes.delete(oyente)
+    if (oyentes.size === 0) cortarLectura()
   }
 }
 
@@ -81,20 +88,38 @@ async function aplicarCarga(estadoCarga: CargaEstado, archivo: File, marca: numb
     return false
   }
   if (estadoCarga.fase === "lista" && estadoCarga.documento_id) {
+    if (marca !== generacion) return true
+    // La persona ya se fue de la pantalla. El borrador queda en el servidor
+    // y el tablero lo pide por la lista; no abrimos el comprobante desde acá.
     if (oyentes.size === 0) {
       publicar({ fase: "ociosa" })
+      avisarListo()
       return true
     }
+    const ctrl = new AbortController()
+    lectura = ctrl
     try {
-      const documento = await cliente.verDocumento(estadoCarga.documento_id)
+      const documento = await cliente.verDocumento(estadoCarga.documento_id, ctrl.signal)
       if (marca !== generacion) return true
+      if (ctrl.signal.aborted || oyentes.size === 0) {
+        publicar({ fase: "ociosa" })
+        avisarListo()
+        return true
+      }
       if (documento.estado !== "borrador") throw new ErrorApi("La API no devolvió el borrador.", 0)
       marcarLeidasDeRecurso("job", estadoCarga.job_id)
       guardarVista(documento.id, archivo)
       publicar({ fase: "lista", archivo, documento })
     } catch (falla: unknown) {
       if (marca !== generacion) return true
+      if (esAbort(falla) || oyentes.size === 0) {
+        publicar({ fase: "ociosa" })
+        avisarListo()
+        return true
+      }
       publicar({ fase: "falla", archivo, mensaje: mensajeDe(falla) })
+    } finally {
+      if (lectura === ctrl) lectura = null
     }
     avisarListo()
     return true
@@ -142,6 +167,9 @@ async function seguirCarga(jobId: string, archivo: File, marca: number): Promise
           resolve()
         }
       })
+      if (cola.length > 0) continue
+      const estadoCarga = await cliente.verCarga(jobId)
+      if (await aplicarCarga(estadoCarga, archivo, marca)) return
     }
   } catch (falla: unknown) {
     if (marca !== generacion) return
