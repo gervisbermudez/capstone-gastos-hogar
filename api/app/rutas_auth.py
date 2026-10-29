@@ -34,6 +34,23 @@ router = APIRouter()
 
 _NO_AUTENTICADO = {"WWW-Authenticate": "Bearer"}
 _CLAVE_DISTINTA = "La contraseña no coincide."
+_NO_HOGAR = "No existe ese hogar"
+
+
+async def _contexto_hogar(request: Request, user_id: str) -> tuple[str, str]:
+    """Header ``X-Hogar-Id`` o el hogar que administra. 404 si no es miembro."""
+    crudo = request.headers.get("x-hogar-id")
+    pedido = crudo.strip() if isinstance(crudo, str) else ""
+    if pedido:
+        hogar_id: str | None = pedido
+    else:
+        hogar_id = await repositorio.hogar_por_defecto(user_id)
+    if not hogar_id:
+        raise HTTPException(status_code=404, detail=_NO_HOGAR)
+    rol = await repositorio.membresia(user_id, hogar_id)
+    if rol is None:
+        raise HTTPException(status_code=404, detail=_NO_HOGAR)
+    return hogar_id, rol
 
 
 async def _exigir_clave(user_id: str, password: str) -> None:
@@ -139,7 +156,17 @@ async def borrar_cuenta(
 ) -> Response:
     user_id = usuario["user_id"]
     await _exigir_clave(user_id, body.password)
-    await repositorio.eliminar_usuario(user_id=user_id)
+    hogares = await repositorio.listar_hogares(user_id)
+    try:
+        await repositorio.eliminar_usuario(user_id=user_id)
+    except repositorio.HogarOcupado:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "No se puede borrar la cuenta mientras seas administrador "
+                "de un hogar con otros miembros"
+            ),
+        ) from None
     try:
         await archivos.borrar_directorio_usuario(user_id)
     except Exception as exc:
@@ -149,7 +176,12 @@ async def borrar_cuenta(
     except Exception as exc:
         _aviso("No se pudo olvidar el índice de la cuenta", exc)
     try:
-        await invalidar(getattr(request.app.state, "redis", None), user_id)
+        redis = getattr(request.app.state, "redis", None)
+        await invalidar(redis, user_id)
+        for hogar in hogares:
+            hogar_id = hogar.get("id")
+            if isinstance(hogar_id, str) and hogar_id:
+                await invalidar(redis, hogar_id)
     except Exception as exc:
         _aviso("No se pudo invalidar la caché de la cuenta", exc)
     return Response(status_code=204)
@@ -162,14 +194,21 @@ async def ver_resumen(
     usuario: Annotated[dict, Depends(usuario_actual)],
 ) -> Resumen:
     user_id = usuario["user_id"]
+    hogar_id, _rol = await _contexto_hogar(request, user_id)
     redis = getattr(request.app.state, "redis", None)
-    cacheado = await leer(redis, user_id, rango.desde, rango.hasta)
+    cacheado = await leer(redis, hogar_id, rango.desde, rango.hasta)
     if cacheado is not None:
         try:
             return Resumen.model_validate(cacheado)
         except ValidationError:
             logger.warning("La caché del resumen no tenía la forma del contrato.")
-    datos = await repositorio.resumen(user_id=user_id, desde=rango.desde, hasta=rango.hasta)
+    datos = await repositorio.resumen(
+        user_id=user_id,
+        desde=rango.desde,
+        hasta=rango.hasta,
+        hogar_id=hogar_id,
+        rol="administrador",
+    )
     modelo = Resumen.model_validate(datos)
-    await guardar(redis, user_id, rango.desde, rango.hasta, modelo.model_dump(mode="json"))
+    await guardar(redis, hogar_id, rango.desde, rango.hasta, modelo.model_dump(mode="json"))
     return modelo

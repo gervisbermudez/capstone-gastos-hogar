@@ -217,17 +217,36 @@ def texto_de_pausa(payload: dict[str, Any] | None) -> str:
     return "\n".join(lineas)
 
 
-async def _hilo_borrado(user_id: str, thread_id: str) -> bool:
+def _hogar_del_job(job: dict[str, Any] | None) -> str | None:
+    if not job:
+        return None
+    valor = job.get("hogar_id")
+    if isinstance(valor, str) and valor.strip():
+        return valor.strip()
+    return None
+
+
+async def _hilo_borrado(user_id: str, thread_id: str, hogar_id: str | None = None) -> bool:
     try:
         from .repositorio import hilo_esta_eliminado
 
-        return await hilo_esta_eliminado(user_id=user_id, thread_id=thread_id)
+        return await hilo_esta_eliminado(
+            user_id=user_id,
+            thread_id=thread_id,
+            hogar_id=hogar_id,
+        )
     except Exception as exc:
         logger.warning("No se pudo saber si el hilo sigue: %s", type(exc).__name__)
         return False
 
 
-async def _anotar(user_id: str, thread_id: str, rol: str, texto: str) -> None:
+async def _anotar(
+    user_id: str,
+    thread_id: str,
+    rol: str,
+    texto: str,
+    hogar_id: str | None = None,
+) -> None:
     if not user_id or not thread_id:
         return
     try:
@@ -238,6 +257,7 @@ async def _anotar(user_id: str, thread_id: str, rol: str, texto: str) -> None:
             thread_id=thread_id,
             rol=rol,
             texto=texto if isinstance(texto, str) else "",
+            hogar_id=hogar_id,
         )
     except Exception as exc:
         logger.warning("No se pudo anotar el hilo: %s", type(exc).__name__)
@@ -338,6 +358,7 @@ async def crear_job(
     *,
     user_id: str,
     thread_id: str,
+    hogar_id: str = "",
 ) -> dict[str, Any]:
     """Persiste PENDING antes de encolar. Si no, un poll temprano da 404."""
     job = {
@@ -354,6 +375,7 @@ async def crear_job(
         "action": "start",
         "aprobado": None,
         "user_id": user_id,
+        "hogar_id": hogar_id,
         "thread_id": thread_id,
         "created_at": ahora(),
         "updated_at": ahora(),
@@ -440,6 +462,7 @@ async def marcar_cortados(redis) -> int:
                     str(job.get("thread_id") or ""),
                     "nota",
                     RESULTADO_FALLO,
+                    _hogar_del_job(job),
                 )
                 cortados += 1
             else:
@@ -459,6 +482,7 @@ async def marcar_cortados(redis) -> int:
             str(job.get("thread_id") or ""),
             "nota",
             RESULTADO_FALLO,
+            _hogar_del_job(job),
         )
         cortados += 1
         logger.warning("Job %s quedó FAILED por un reinicio", job["job_id"])
@@ -531,6 +555,7 @@ async def procesar(redis, graph, job_id: str) -> None:
 
     thread_id = job.get("thread_id")
     user_id = job.get("user_id")
+    hogar_id = _hogar_del_job(job)
     if not thread_id or not user_id:
         await actualizar(
             redis,
@@ -541,7 +566,7 @@ async def procesar(redis, graph, job_id: str) -> None:
         )
         return
 
-    if await _hilo_borrado(str(user_id), str(thread_id)):
+    if await _hilo_borrado(str(user_id), str(thread_id), hogar_id):
         logger.info("Job %s no corre: el hilo fue eliminado", job_id)
         await actualizar(
             redis,
@@ -557,14 +582,20 @@ async def procesar(redis, graph, job_id: str) -> None:
             config = config_hilo(thread_id, job_id=job_id)
             reanudar = job.get("action") == "resume"
             if not reanudar:
-                await _anotar(user_id, thread_id, "persona", str(job.get("query") or ""))
+                await _anotar(
+                    user_id,
+                    thread_id,
+                    "persona",
+                    str(job.get("query") or ""),
+                    hogar_id,
+                )
             if reanudar:
                 from langgraph.types import Command
 
                 decision = "si" if job.get("aprobado") else "no"
                 entrada: Any = Command(resume=decision)
             else:
-                entrada = estado_inicial(job["query"], user_id)
+                entrada = estado_inicial(job["query"], user_id, hogar_id=hogar_id or "")
 
             snapshot, interrupt_directo = await asyncio.to_thread(
                 _correr,
@@ -576,7 +607,7 @@ async def procesar(redis, graph, job_id: str) -> None:
             )
     except Exception as exc:
         logger.exception("Job %s falló", job_id)
-        await _anotar(user_id, thread_id, "nota", RESULTADO_FALLO)
+        await _anotar(user_id, thread_id, "nota", RESULTADO_FALLO, hogar_id)
         await actualizar(
             redis,
             job_id,
@@ -590,7 +621,7 @@ async def procesar(redis, graph, job_id: str) -> None:
     if getattr(snapshot, "next", ()) or payload:
         motivo = (payload or {}).get("motivo") or ""
         texto = texto_de_pausa(payload)
-        await _anotar(user_id, thread_id, "nota", texto)
+        await _anotar(user_id, thread_id, "nota", texto, hogar_id)
         await actualizar(
             redis,
             job_id,
@@ -607,7 +638,7 @@ async def procesar(redis, graph, job_id: str) -> None:
     values = snapshot.values or {}
     mensajes = values.get("messages") or []
     respuesta = extraer_texto(mensajes[-1]) if mensajes else ""
-    await _anotar(user_id, thread_id, "asistente", respuesta or "")
+    await _anotar(user_id, thread_id, "asistente", respuesta or "", hogar_id)
     await actualizar(
         redis,
         job_id,
@@ -660,6 +691,7 @@ async def worker_loop(redis, graph, stop: asyncio.Event) -> None:
                         str(job.get("thread_id") or ""),
                         "nota",
                         RESULTADO_FALLO,
+                        _hogar_del_job(job),
                     )
                 await actualizar(
                     redis,

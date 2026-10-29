@@ -1,5 +1,5 @@
 import { Box, Flex, Grid, Heading, Stack, Text } from "@chakra-ui/react"
-import { useEffect, useState } from "react"
+import { type ReactNode, useEffect, useState } from "react"
 import { EsqueletoCifras } from "../esqueleto"
 import { formatMonto } from "../../formato"
 import { DURACION, EASING, entradaEscalon, useMovimientoReducido } from "../../movimiento"
@@ -31,6 +31,7 @@ type Props = {
   borradores: number | null
   categorias: number | null
   cargando: boolean
+  complemento?: ReactNode
 }
 
 function textoTotal(total: string | null): string {
@@ -172,25 +173,29 @@ export function ResumenCifras({
   borradores,
   categorias,
   cargando,
+  complemento,
 }: Props) {
   return (
     <Stack gap={5}>
-      <Stack gap={2}>
-        <Heading
-          as="h1"
-          color="fg"
-          fontFamily="inherit"
-          fontSize={{ base: "1.75rem", md: "2rem" }}
-          fontWeight="medium"
-          letterSpacing="-0.03em"
-          lineHeight="1.1"
-        >
-          {saludo}
-        </Heading>
-        <Text color="fg.muted" fontSize="sm">
-          {etiquetaPeriodo}
-        </Text>
-      </Stack>
+      <Flex align="flex-start" justify="space-between" gap={3}>
+        <Stack gap={2} minW={0}>
+          <Heading
+            as="h1"
+            color="fg"
+            fontFamily="inherit"
+            fontSize={{ base: "1.75rem", md: "2rem" }}
+            fontWeight="medium"
+            letterSpacing="-0.03em"
+            lineHeight="1.1"
+          >
+            {saludo}
+          </Heading>
+          <Text color="fg.muted" fontSize="sm" overflowWrap="anywhere">
+            {etiquetaPeriodo}
+          </Text>
+        </Stack>
+        {complemento}
+      </Flex>
       {cargando ? (
         <EsqueletoCifras />
       ) : (

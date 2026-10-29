@@ -43,6 +43,7 @@ import {
 } from "../componentes/revision"
 import { armarFactura, desdeCampos, type BorradorFactura, type ErroresFactura } from "../formulario"
 import { formatFecha, formatMonto, formatPeriodo } from "../formato"
+import { useHogar } from "../hogar"
 import { useSesion } from "../sesion"
 import { leerVista } from "../vistas"
 
@@ -126,6 +127,7 @@ function textoCambio(campo: string, valor: string | null): string {
 function MenuAcciones({
   puedeEditar,
   puedeAnular,
+  puedeEliminar,
   guardando,
   onEditar,
   onAnular,
@@ -133,11 +135,13 @@ function MenuAcciones({
 }: {
   puedeEditar: boolean
   puedeAnular: boolean
+  puedeEliminar: boolean
   guardando: boolean
   onEditar: () => void
   onAnular: () => void
   onEliminar: () => void
 }) {
+  if (!puedeEditar && !puedeAnular && !puedeEliminar) return null
   return (
     <Menu.Root positioning={{ placement: "bottom-end" }}>
       <Menu.Trigger asChild>
@@ -168,9 +172,11 @@ function MenuAcciones({
                 Anular
               </Menu.Item>
             ) : null}
-            <Menu.Item value="eliminar" onClick={onEliminar} css={itemPeligro}>
-              Eliminar
-            </Menu.Item>
+            {puedeEliminar ? (
+              <Menu.Item value="eliminar" onClick={onEliminar} css={itemPeligro}>
+                Eliminar
+              </Menu.Item>
+            ) : null}
           </Menu.Content>
         </Menu.Positioner>
       </Portal>
@@ -338,6 +344,7 @@ export function Revision() {
   const estadoNavegacion = useRef(location.state)
   estadoNavegacion.current = location.state
   const { email, nombre: alias } = useSesion()
+  const esAsociado = useHogar().rol === "asociado"
   const [documento, setDocumento] = useState<DocumentoDetalle | null>(null)
   const [form, setForm] = useState<BorradorFactura | null>(null)
   const [errores, setErrores] = useState<ErroresFactura>({})
@@ -365,7 +372,7 @@ export function Revision() {
       setCargando(false)
       return
     }
-    const abrirEdicion = pideCorregir(estadoNavegacion.current)
+    const abrirEdicion = !esAsociado && pideCorregir(estadoNavegacion.current)
     const ctrl = new AbortController()
     setCargando(true)
     setCorrigiendo(false)
@@ -391,7 +398,7 @@ export function Revision() {
         if (!ctrl.signal.aborted) setCargando(false)
       })
     return () => ctrl.abort()
-  }, [id, navigate])
+  }, [id, navigate, esAsociado])
 
   useEffect(() => {
     const ctrl = new AbortController()
@@ -444,7 +451,7 @@ export function Revision() {
   const fichaLista = !cargando && documento?.id === id
 
   useEffect(() => {
-    if (!id || !fichaLista) return
+    if (esAsociado || !id || !fichaLista) return
     const ctrl = new AbortController()
     setCargandoChats(true)
     setFallaChats(false)
@@ -463,7 +470,7 @@ export function Revision() {
         if (!ctrl.signal.aborted) setCargandoChats(false)
       })
     return () => ctrl.abort()
-  }, [id, fichaLista])
+  }, [id, fichaLista, esAsociado])
 
   function actualizar<K extends keyof BorradorFactura>(clave: K, valor: BorradorFactura[K]) {
     setForm((actual) => (actual ? { ...actual, [clave]: valor } : actual))
@@ -639,7 +646,12 @@ export function Revision() {
   }
 
   const anulado = !esBorrador(documento) && documento.anulado
-  const editando = esBorrador(documento) || corrigiendo
+  const cargadoPor = documento.autor_email?.trim() || alias?.trim() || email?.trim() || "Tu cuenta"
+  const ajeno =
+    esAsociado &&
+    Boolean(documento.autor_email?.trim()) &&
+    documento.autor_email?.trim().toLowerCase() !== email?.trim().toLowerCase()
+  const editando = !ajeno && (esBorrador(documento) || corrigiendo)
   const avisosDatos = esBorrador(documento)
     ? documento.advertencias.filter((aviso) => !esPedidoDeCompletar(aviso))
     : []
@@ -718,8 +730,9 @@ export function Revision() {
           {titulo}
         </Heading>
         <MenuAcciones
-            puedeEditar={!esBorrador(documento) && !anulado && !corrigiendo}
-            puedeAnular={!esBorrador(documento) && !anulado}
+            puedeEditar={!esAsociado && !esBorrador(documento) && !anulado && !corrigiendo}
+            puedeAnular={!esAsociado && !esBorrador(documento) && !anulado}
+            puedeEliminar={!ajeno && (esBorrador(documento) || !esAsociado)}
             guardando={guardando}
             onEditar={() => {
               setErrores({})
@@ -871,7 +884,7 @@ export function Revision() {
                   etiqueta="Comprobante"
                   valor={form.numero_comprobante.trim() || "Sin número"}
                 />
-                <FilaDato icono={<IconoPersona />} etiqueta="Cargado por" valor={alias?.trim() || email?.trim() || "Tu cuenta"} />
+                <FilaDato icono={<IconoPersona />} etiqueta="Cargado por" valor={cargadoPor} />
                 <FilaDato icono={<IconoFecha />} etiqueta={etiquetaFecha} valor={formatFecha(marcaTiempo)} />
                 <FilaDato icono={<IconoBusqueda />} etiqueta="Búsqueda" valor={etiquetaBusqueda(documento)} />
                 <FilaDato icono={<IconoArchivo />} etiqueta="Archivo" valor={textoArchivo} />
@@ -1101,7 +1114,7 @@ export function Revision() {
                   </Stack>
                 </form>
                 <Stack gap={3} mt={4} pt={4} borderTopWidth="1px" borderColor="borde">
-                  <FilaDato icono={<IconoPersona />} etiqueta="Cargado por" valor={alias?.trim() || email?.trim() || "Tu cuenta"} />
+                  <FilaDato icono={<IconoPersona />} etiqueta="Cargado por" valor={cargadoPor} />
                   <FilaDato icono={<IconoFecha />} etiqueta={etiquetaFecha} valor={formatFecha(marcaTiempo)} />
                   <FilaDato icono={<IconoBusqueda />} etiqueta="Búsqueda" valor={etiquetaBusqueda(documento)} />
                   <FilaDato icono={<IconoArchivo />} etiqueta="Archivo" valor={textoArchivo} />
@@ -1110,26 +1123,28 @@ export function Revision() {
             </Card.Root>
           ) : null}
 
-          <Card.Root bg="bg.panel" borderWidth="0" borderRadius="20px" boxShadow={SOMBRA} _dark={{ borderWidth: "1px", borderColor: "borde" }}>
-            <Card.Header>
-              <Card.Title as="h2" fontWeight="medium" color="fg" letterSpacing="-0.03em">
-                Chats
-              </Card.Title>
-            </Card.Header>
-            <Card.Body>
-              <ListaChats
-                chats={chats.map((chat) => ({
-                  threadId: chat.thread_id,
-                  titulo: chat.titulo,
-                  cuando: formatFecha(chat.actualizado_en),
-                }))}
-                cargando={cargandoChats}
-                falla={fallaChats}
-                onAbrir={abrirConversacion}
-                onNuevo={abrirChatNuevo}
-              />
-            </Card.Body>
-          </Card.Root>
+          {esAsociado ? null : (
+            <Card.Root bg="bg.panel" borderWidth="0" borderRadius="20px" boxShadow={SOMBRA} _dark={{ borderWidth: "1px", borderColor: "borde" }}>
+              <Card.Header>
+                <Card.Title as="h2" fontWeight="medium" color="fg" letterSpacing="-0.03em">
+                  Chats
+                </Card.Title>
+              </Card.Header>
+              <Card.Body>
+                <ListaChats
+                  chats={chats.map((chat) => ({
+                    threadId: chat.thread_id,
+                    titulo: chat.titulo,
+                    cuando: formatFecha(chat.actualizado_en),
+                  }))}
+                  cargando={cargandoChats}
+                  falla={fallaChats}
+                  onAbrir={abrirConversacion}
+                  onNuevo={abrirChatNuevo}
+                />
+              </Card.Body>
+            </Card.Root>
+          )}
         </Stack>
       </Grid>
     </Stack>

@@ -148,18 +148,19 @@ def nodo_ejecutar(state: AgentState) -> dict:
     """Corre el efecto recién cuando el humano ya aprobó."""
     pregunta = sin_cita_comprobante(pregunta_actual(state))
     user_id = str(state.get("user_id") or "").strip()
+    hogar_id = str(state.get("hogar_id") or "").strip()
     if not state.get("aprobado"):
         if _es_pago(pregunta):
             return {"accion": "Rechazado por el revisor. No se creó el borrador del pago."}
         return {"accion": "Rechazado por el revisor. No se registró la acción."}
     if _es_pago(pregunta):
-        return _crear_borrador(pregunta, user_id)
+        return _crear_borrador(pregunta, user_id, hogar_id)
     mensaje = _armar_aviso(state)
     registrar_aviso(mensaje, user_id=user_id)
     return {"accion": f"Acción registrada. {mensaje}"}
 
 
-def _crear_borrador(pregunta: str, user_id: str) -> dict:
+def _crear_borrador(pregunta: str, user_id: str, hogar_id: str) -> dict:
     datos = _datos_pago(pregunta)
     if datos is None:
         return {"accion": "No se creó el borrador: faltan categoría, período o monto."}
@@ -170,6 +171,7 @@ def _crear_borrador(pregunta: str, user_id: str) -> dict:
     async def _guardar() -> str:
         return await guardar_borrador(
             user_id=user_id,
+            hogar_id=hogar_id,
             texto=(pregunta or "")[:500],
             campos={
                 "proveedor": datos["proveedor"],

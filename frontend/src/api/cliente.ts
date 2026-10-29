@@ -1,4 +1,4 @@
-import { leerToken, olvidarSesion } from "../almacen"
+import { leerHogar, leerToken, olvidarSesion } from "../almacen"
 import { olvidarResumenes } from "./cacheResumen"
 import {
   ESTADOS_TAREA,
@@ -13,11 +13,16 @@ import {
   type EstadoTarea,
   type Factura,
   type HiloDetalle,
+  type Hogar,
   type Indexado,
   type ListaCategorias,
   type ListaDocumentos,
   type ListaHilos,
+  type ListaHogares,
+  type ListaMiembros,
+  type MiembroHogar,
   type Resumen,
+  type RolHogar,
   type RolMensaje,
   type CargaAceptada,
   type CargaEstado,
@@ -47,6 +52,11 @@ let alNoAutorizado = (): void => {}
 
 export function registrarNoAutorizado(fn: () => void): void {
   alNoAutorizado = fn
+}
+
+function ponerHogar(headers: Headers): void {
+  const hogarId = leerHogar()
+  if (hogarId) headers.set("X-Hogar-Id", hogarId)
 }
 
 export function esAbort(error: unknown): boolean {
@@ -129,6 +139,7 @@ async function enviar(path: string, opciones: Omit<Pedido, "esperado">): Promise
       throw new ErrorApi("La sesión venció.", 401)
     }
     headers.set("Authorization", `Bearer ${token}`)
+    ponerHogar(headers)
   }
 
   let body: BodyInit | undefined
@@ -317,6 +328,7 @@ function asegurarDetalle(valor: unknown): DocumentoDetalle {
   const campos = camposDe(valor.campos)
   if (valor.estado === "borrador") {
     const creado_en = textoOpcional(valor.creado_en)
+    const autor = emailAutor(valor)
     return {
       id: valor.id,
       estado: "borrador",
@@ -326,16 +338,19 @@ function asegurarDetalle(valor: unknown): DocumentoDetalle {
         ? valor.advertencias.filter((item): item is string => typeof item === "string")
         : [],
       ...(creado_en ? { creado_en } : {}),
+      ...(autor ? { autor_email: autor } : {}),
     }
   }
   if (valor.estado === "confirmado") {
     const confirmado_en = textoOpcional(valor.confirmado_en)
+    const autor = emailAutor(valor)
     return {
       id: valor.id,
       estado: "confirmado",
       campos,
       ...datosConfirmado(valor),
       ...(confirmado_en ? { confirmado_en } : {}),
+      ...(autor ? { autor_email: autor } : {}),
     }
   }
   throw new ErrorApi("La API no devolvió el comprobante.", 0)
@@ -347,6 +362,12 @@ function asegurarConfirmado(valor: unknown, mensaje: string): DocumentoConfirmad
   return detalle
 }
 
+function emailAutor(valor: unknown): string | undefined {
+  if (!esObjeto(valor) || typeof valor.autor_email !== "string") return undefined
+  const texto = valor.autor_email.trim()
+  return texto === "" ? undefined : texto
+}
+
 function asegurarLista(valor: unknown): ListaDocumentos {
   if (!esObjeto(valor) || !Array.isArray(valor.items)) {
     throw new ErrorApi("La API no devolvió los comprobantes.", 0)
@@ -354,6 +375,7 @@ function asegurarLista(valor: unknown): ListaDocumentos {
   return {
     items: valor.items.map((item) => {
       const detalle = asegurarDetalle(item)
+      const autor = emailAutor(item)
       if (detalle.estado === "confirmado") {
         return {
           id: detalle.id,
@@ -362,9 +384,15 @@ function asegurarLista(valor: unknown): ListaDocumentos {
           anulado: detalle.anulado,
           indexado: detalle.indexado,
           cambios: detalle.cambios,
+          ...(autor ? { autor_email: autor } : {}),
         }
       }
-      return { id: detalle.id, estado: detalle.estado, campos: detalle.campos }
+      return {
+        id: detalle.id,
+        estado: detalle.estado,
+        campos: detalle.campos,
+        ...(autor ? { autor_email: autor } : {}),
+      }
     }),
   }
 }
@@ -446,6 +474,74 @@ function asegurarCategoria(valor: unknown, mensaje = "La API no devolvió la cat
     id: valor.id,
     nombre: valor.nombre,
     descripcion: descripcionDeCategoria(valor, mensaje),
+  }
+}
+
+function esRolHogar(valor: unknown): valor is RolHogar {
+  return valor === "administrador" || valor === "asociado"
+}
+
+function direccionDe(valor: unknown, mensaje: string): string | null {
+  if (valor == null) return null
+  if (typeof valor !== "string") throw new ErrorApi(mensaje, 0)
+  const texto = valor.trim()
+  return texto === "" ? null : texto
+}
+
+function asegurarHogar(valor: unknown, mensaje = "La API no devolvió el hogar."): Hogar {
+  if (!esObjeto(valor) || typeof valor.id !== "string" || valor.id === "" || typeof valor.nombre !== "string") {
+    throw new ErrorApi(mensaje, 0)
+  }
+  if (valor.nombre.trim() === "" || !esRolHogar(valor.rol)) throw new ErrorApi(mensaje, 0)
+  return {
+    id: valor.id,
+    nombre: valor.nombre,
+    direccion: direccionDe(valor.direccion, mensaje),
+    rol: valor.rol,
+  }
+}
+
+function asegurarListaHogares(valor: unknown): ListaHogares {
+  if (!esObjeto(valor) || !Array.isArray(valor.items)) {
+    throw new ErrorApi("La API no devolvió los hogares.", 0)
+  }
+  return {
+    items: valor.items.map((item) => asegurarHogar(item, "La API no devolvió los hogares.")),
+  }
+}
+
+function asegurarMiembro(valor: unknown, mensaje = "La API no devolvió el miembro."): MiembroHogar {
+  if (
+    !esObjeto(valor) ||
+    typeof valor.user_id !== "string" ||
+    valor.user_id === "" ||
+    typeof valor.email !== "string" ||
+    valor.email === "" ||
+    !esRolHogar(valor.rol)
+  ) {
+    throw new ErrorApi(mensaje, 0)
+  }
+  return {
+    user_id: valor.user_id,
+    email: valor.email,
+    nombre: nombreOpcional(valor.nombre, mensaje),
+    rol: valor.rol,
+  }
+}
+
+function nombreOpcional(valor: unknown, mensaje: string): string | null {
+  if (valor == null) return null
+  if (typeof valor !== "string") throw new ErrorApi(mensaje, 0)
+  const texto = valor.trim()
+  return texto === "" ? null : texto
+}
+
+function asegurarListaMiembros(valor: unknown): ListaMiembros {
+  if (!esObjeto(valor) || !Array.isArray(valor.items)) {
+    throw new ErrorApi("La API no devolvió los miembros.", 0)
+  }
+  return {
+    items: valor.items.map((item) => asegurarMiembro(item, "La API no devolvió los miembros.")),
   }
 }
 
@@ -625,6 +721,7 @@ async function pedirCuenta(
 
   const headers = new Headers()
   headers.set("Authorization", `Bearer ${token}`)
+  ponerHogar(headers)
   headers.set("Content-Type", "application/json")
 
   let respuesta: Response
@@ -1001,6 +1098,58 @@ export const cliente = {
 
   eliminarCategoria(id: string): Promise<void> {
     return pedir(`/categorias/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      esperado: 204,
+    }).then(() => undefined)
+  },
+
+  listarHogares(signal?: AbortSignal): Promise<ListaHogares> {
+    return pedir("/hogares", { signal, esperado: 200 }).then(asegurarListaHogares)
+  },
+
+  crearHogar(datos: { nombre: string; direccion?: string | null }): Promise<Hogar> {
+    return pedir("/hogares", {
+      method: "POST",
+      cuerpo: { nombre: datos.nombre, direccion: datos.direccion ?? null },
+      esperado: 201,
+    }).then((valor) => asegurarHogar(valor))
+  },
+
+  actualizarHogar(id: string, datos: { nombre: string; direccion?: string | null }): Promise<Hogar> {
+    return pedir(`/hogares/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      cuerpo: { nombre: datos.nombre, direccion: datos.direccion ?? null },
+      esperado: 200,
+    }).then((valor) => asegurarHogar(valor))
+  },
+
+  listarMiembros(hogarId: string, signal?: AbortSignal): Promise<ListaMiembros> {
+    return pedir(`/hogares/${encodeURIComponent(hogarId)}/miembros`, {
+      signal,
+      esperado: 200,
+    }).then(asegurarListaMiembros)
+  },
+
+  agregarMiembro(hogarId: string, email: string): Promise<MiembroHogar> {
+    return pedir(`/hogares/${encodeURIComponent(hogarId)}/miembros`, {
+      method: "POST",
+      cuerpo: { email },
+      esperado: 201,
+    }).then((valor) => asegurarMiembro(valor))
+  },
+
+  quitarMiembro(hogarId: string, userId: string): Promise<void> {
+    return pedir(
+      `/hogares/${encodeURIComponent(hogarId)}/miembros/${encodeURIComponent(userId)}`,
+      {
+        method: "DELETE",
+        esperado: 204,
+      },
+    ).then(() => undefined)
+  },
+
+  dejarHogar(hogarId: string): Promise<void> {
+    return pedir(`/hogares/${encodeURIComponent(hogarId)}/membresia`, {
       method: "DELETE",
       esperado: 204,
     }).then(() => undefined)

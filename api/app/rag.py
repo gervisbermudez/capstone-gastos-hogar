@@ -54,11 +54,13 @@ def preparar_indice_local(ruta: Path) -> None:
 def filtro_pinecone(
     *,
     user_id: str,
+    hogar_id: str,
     categoria: str | None = None,
     periodo: str | None = None,
 ) -> dict[str, str]:
     """Filtro de metadata. El proveedor no va: Pinecone compara con mayúsculas."""
-    filtro = {"user_id": user_id}
+    filtro = {"hogar_id": hogar_id}
+    del user_id
     if categoria:
         filtro["categoria"] = categoria
     if periodo:
@@ -92,10 +94,13 @@ def indexar_sync(
     categoria: str,
     periodo: str,
     proveedor: str,
+    hogar_id: str | None = None,
 ) -> None:
     """Escribe el texto en el índice local y, si responde, en Pinecone.
 
     Si Pinecone falla o no está configurado, el local queda y no se relanza.
+    ``hogar_id`` entra en la metadata solo cuando viene: los vectores viejos
+    no se reescriben.
     """
     user_id = user_id.strip()
     documento_id = documento_id.strip()
@@ -110,14 +115,16 @@ def indexar_sync(
         raise ValueError("El período tiene que ser YYYY-MM")
     if not proveedor:
         raise ValueError("Falta el proveedor")
+    hogar = (hogar_id or "").strip()
     limpio = texto.strip()
     if not limpio:
         logger.warning("El comprobante %s no tiene texto para indexar.", documento_id)
         return
 
     partes = _partir(limpio)
-    nuevos = [
-        {
+    nuevos: list[dict] = []
+    for indice, parte in enumerate(partes):
+        fila = {
             "user_id": user_id,
             "documento_id": documento_id,
             "categoria": categoria,
@@ -126,8 +133,9 @@ def indexar_sync(
             "chunk_id": str(indice),
             "texto": parte,
         }
-        for indice, parte in enumerate(partes)
-    ]
+        if hogar:
+            fila["hogar_id"] = hogar
+        nuevos.append(fila)
     with _candado:
         actual = [
             fila
@@ -158,31 +166,31 @@ def buscar_sync(
     *,
     consulta: str,
     user_id: str,
+    hogar_id: str,
     categoria: str | None = None,
     periodo: str | None = None,
     proveedor: str | None = None,
 ) -> list[dict[str, str]]:
-    """Chunks de ese usuario. Sin ``user_id`` no busca: no hay resultado cruzado."""
+    """Chunks de ese hogar. Sin ``user_id`` o sin ``hogar_id`` no busca."""
     user_id = (user_id or "").strip()
+    hogar_id = (hogar_id or "").strip()
     consulta = (consulta or "").strip()
-    if not user_id or not consulta:
+    if not user_id or not hogar_id or not consulta:
         return []
     categoria = categoria or None
     periodo = periodo or None
     proveedor = proveedor or None
+    criterios = {
+        "user_id": user_id,
+        "hogar_id": hogar_id,
+        "categoria": categoria,
+        "periodo": periodo,
+        "proveedor": proveedor,
+    }
 
     locales = _filtrar_docs(
-        _buscar_bm25(
-            consulta,
-            user_id=user_id,
-            categoria=categoria,
-            periodo=periodo,
-            proveedor=proveedor,
-        ),
-        user_id=user_id,
-        categoria=categoria,
-        periodo=periodo,
-        proveedor=proveedor,
+        _buscar_bm25(consulta, **criterios),
+        **criterios,
     )
     vectoriales: list[Document] = []
     if _usar_pinecone:
@@ -191,13 +199,11 @@ def buscar_sync(
                 _buscar_pinecone(
                     consulta,
                     user_id=user_id,
+                    hogar_id=hogar_id,
                     categoria=categoria,
                     periodo=periodo,
                 ),
-                user_id=user_id,
-                categoria=categoria,
-                periodo=periodo,
-                proveedor=proveedor,
+                **criterios,
             )
         except PineconeNoConfigurado:
             vectoriales = []
@@ -215,6 +221,7 @@ async def indexar_texto(
     categoria: str,
     periodo: str,
     proveedor: str,
+    hogar_id: str | None = None,
 ) -> None:
     """Igual que ``indexar_sync``, sin bloquear el loop."""
     await asyncio.to_thread(
@@ -225,6 +232,7 @@ async def indexar_texto(
         categoria=categoria,
         periodo=periodo,
         proveedor=proveedor,
+        hogar_id=hogar_id,
     )
 
 
@@ -279,15 +287,17 @@ async def buscar(
     *,
     consulta: str,
     user_id: str,
+    hogar_id: str,
     categoria: str | None = None,
     periodo: str | None = None,
     proveedor: str | None = None,
 ) -> list[dict[str, str]]:
-    """Igual que ``buscar_sync``. Sin ``user_id`` no hay resultado cruzado."""
+    """Igual que ``buscar_sync``. Sin hogar no hay resultado cruzado."""
     return await asyncio.to_thread(
         buscar_sync,
         consulta=consulta,
         user_id=user_id,
+        hogar_id=hogar_id,
         categoria=categoria,
         periodo=periodo,
         proveedor=proveedor,
@@ -334,17 +344,17 @@ def _escribir(filas: list[dict]) -> None:
 
 
 def _a_document(fila: dict) -> Document:
-    return Document(
-        page_content=str(fila.get("texto") or ""),
-        metadata={
-            "user_id": str(fila.get("user_id") or ""),
-            "documento_id": str(fila.get("documento_id") or ""),
-            "categoria": str(fila.get("categoria") or ""),
-            "periodo": str(fila.get("periodo") or ""),
-            "proveedor": str(fila.get("proveedor") or ""),
-            "chunk_id": str(fila.get("chunk_id") or "0"),
-        },
-    )
+    metadata = {
+        "user_id": str(fila.get("user_id") or ""),
+        "documento_id": str(fila.get("documento_id") or ""),
+        "categoria": str(fila.get("categoria") or ""),
+        "periodo": str(fila.get("periodo") or ""),
+        "proveedor": str(fila.get("proveedor") or ""),
+        "chunk_id": str(fila.get("chunk_id") or "0"),
+    }
+    if fila.get("hogar_id"):
+        metadata["hogar_id"] = str(fila["hogar_id"])
+    return Document(page_content=str(fila.get("texto") or ""), metadata=metadata)
 
 
 def _publico(doc: Document) -> dict[str, str]:
@@ -356,11 +366,15 @@ def _publico(doc: Document) -> dict[str, str]:
         "periodo": str(meta.get("periodo", "")),
         "proveedor": str(meta.get("proveedor", "")),
         "user_id": str(meta.get("user_id", "")),
+        "hogar_id": str(meta.get("hogar_id", "")),
     }
 
 
-def _coincide(meta: dict, *, user_id: str, categoria, periodo, proveedor) -> bool:
-    if str(meta.get("user_id", "")) != user_id:
+def _coincide(meta: dict, *, user_id: str, hogar_id: str, categoria, periodo, proveedor) -> bool:
+    # El libro del chat es el del hogar. user_id queda en la metadata
+    # para olvidar la cuenta, y no recorta lo que cargó un asociado.
+    del user_id
+    if str(meta.get("hogar_id", "")) != hogar_id:
         return False
     if categoria and meta.get("categoria") != categoria:
         return False
@@ -451,13 +465,25 @@ def _conectar_pinecone():
     )
 
 
-def _buscar_pinecone(consulta: str, *, user_id: str, categoria, periodo) -> list[Document]:
+def _buscar_pinecone(
+    consulta: str,
+    *,
+    user_id: str,
+    hogar_id: str,
+    categoria,
+    periodo,
+) -> list[Document]:
     store = _store_pinecone()
     return list(
         store.similarity_search(
             consulta,
             k=TOP_K,
-            filter=filtro_pinecone(user_id=user_id, categoria=categoria, periodo=periodo),
+            filter=filtro_pinecone(
+                user_id=user_id,
+                hogar_id=hogar_id,
+                categoria=categoria,
+                periodo=periodo,
+            ),
             namespace=NAMESPACE,
         )
     )

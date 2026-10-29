@@ -28,18 +28,21 @@ No se hace commit salvo que el usuario lo pida. No se copia `pre-entrega-7-api/.
 
 ## Qué es el producto
 
-Asistente de gastos del hogar para más de una persona. Cada persona carga comprobantes de **servicios**, **expensas** y **alquiler**, revisa los datos extraídos y consulta sus propios gastos.
+Asistente de gastos para más de una propiedad. Cada hogar agrupa los comprobantes de **servicios**, **expensas**, **alquiler** y las categorías propias de esa propiedad. Una persona puede tener varios hogares. En cada hogar hay un administrador y asociados.
 
-Una persona puede:
+El administrador puede:
 
-1. Registrarse e ingresar con email y contraseña.
-2. Subir una foto o un PDF de un comprobante.
-3. Ver los campos extraídos, corregirlos y confirmarlos. Hasta la confirmación, el monto no entra al libro ni a los gráficos.
-4. Ver un dashboard con el total por mes, el total por categoría y la lista de comprobantes confirmados.
-5. Preguntar en un chat cosas como cuánto pagó, cómo se comparan dos períodos, o qué dice el texto de una factura.
-6. Aprobar o rechazar una acción del chat que tenga efecto (por ejemplo, asentar un pago) antes de que el sistema la ejecute.
+1. Registrarse e ingresar con email y contraseña. Al registrarse queda como administrador de «Mi hogar».
+2. Crear y editar hogares, y sumar asociados por el email de una cuenta que ya existe.
+3. Subir una foto o un PDF de un comprobante.
+4. Ver los campos extraídos, corregirlos y confirmarlos. Hasta la confirmación, el monto no entra al libro ni a los gráficos.
+5. Ver un dashboard con el total por mes, el total por categoría y la lista de comprobantes confirmados de todo el hogar.
+6. Preguntar en un chat cosas como cuánto se pagó, cómo se comparan dos períodos, o qué dice el texto de una factura.
+7. Aprobar o rechazar una acción del chat que tenga efecto (por ejemplo, asentar un pago) antes de que el sistema la ejecute.
 
-Una persona no ve usuarios, comprobantes, totales ni conversaciones de otra.
+Un asociado carga y confirma sus propios comprobantes en los hogares donde fue sumado. Ve el tablero y las cargas de ese hogar, incluidas las de los demás miembros. No corrige, no anula, no borra lo que cargó otra persona, no usa el chat, y no administra miembros ni categorías.
+
+Quien no es miembro de un hogar no ve sus comprobantes, totales ni conversaciones. Esos pedidos responden como si no existieran.
 
 ## Qué exige la consigna
 
@@ -164,7 +167,7 @@ Respuesta de registro `201`. Respuesta de login `200`:
 }
 ```
 
-`GET /documentos/{id}` devuelve el borrador o el comprobante confirmado. `404` si no existe o si es de otra persona.
+`GET /documentos/{id}` devuelve el borrador o el comprobante confirmado, con `autor_email` de quien lo cargó. `404` si no existe o si quien pide no pertenece a ese hogar.
 
 `POST /documentos/{id}/confirmar` recibe una `Factura`. `200`:
 
@@ -174,14 +177,14 @@ Respuesta de registro `201`. Respuesta de login `200`:
 
 `422` si faltan proveedor, período o monto.
 
-`GET /documentos` → `200` `{ "items": [ { "id": "...", "estado": "confirmado", "campos": {} } ] }`.
+`GET /documentos` → `200` `{ "items": [ { "id": "...", "estado": "confirmado", "campos": {}, "autor_email": "..." } ] }`. Cualquier miembro ve las cargas del hogar activo.
 
 `Factura`:
 
 | Campo | Tipo |
 | --- | --- |
 | `proveedor` | string |
-| `categoria` | `servicios`, `expensas` o `alquiler` |
+| `categoria` | `servicios`, `expensas`, `alquiler`, o el nombre de una categoría del hogar |
 | `periodo` | `YYYY-MM` |
 | `monto` | string con dos decimales |
 | `moneda` | string, default `ARS` |
@@ -191,7 +194,7 @@ Respuesta de registro `201`. Respuesta de login `200`:
 
 `GET /resumen?desde=YYYY-MM&hasta=YYYY-MM`
 
-Solo comprobantes confirmados del usuario del token.
+Solo comprobantes confirmados del hogar activo. El header `X-Hogar-Id` elige el hogar. Sin ese header se usa «Mi hogar». Cualquier miembro ve ese tablero. Quien no es miembro recibe 404.
 
 ```json
 {
@@ -332,4 +335,4 @@ El cierre deja demostrado: cinco ejecuciones visibles en Phoenix o LangSmith, do
 
 ## Fuera de alcance
 
-OAuth, recuperación de clave, roles, panel de administración, más de un archivo por comprobante, OCR propio, multi-usuario dentro de un mismo hogar, y cálculos de totales hechos en el navegador o por el modelo.
+OAuth, recuperación de clave, panel de administración, más de un administrador por hogar, baja del hogar, invitación a quien no tiene cuenta, más de un archivo por comprobante, OCR propio, y cálculos de totales hechos en el navegador o por el modelo. El hogar sí tiene dos roles: administrador y asociado.

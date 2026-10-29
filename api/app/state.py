@@ -40,6 +40,7 @@ class AgentState(MessagesState):
     aprobado: NotRequired[bool | None]
     accion: NotRequired[str]
     user_id: NotRequired[str]
+    hogar_id: NotRequired[str]
 
 
 def pregunta_actual(state: dict) -> str:

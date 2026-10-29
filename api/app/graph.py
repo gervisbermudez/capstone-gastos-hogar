@@ -74,8 +74,8 @@ def construir_grafo(checkpointer) -> CompiledStateGraph:
     return grafo.compile(checkpointer=checkpointer)
 
 
-def estado_inicial(pregunta: str, user_id: str) -> AgentState:
-    """Estado de un turno nuevo. El ``user_id`` lo pone el sistema, no el modelo."""
+def estado_inicial(pregunta: str, user_id: str, hogar_id: str = "") -> AgentState:
+    """Estado de un turno nuevo. El usuario y el hogar los pone el sistema."""
     return {
         "messages": [HumanMessage(content=pregunta)],
         "next_agent": None,
@@ -88,6 +88,7 @@ def estado_inicial(pregunta: str, user_id: str) -> AgentState:
         "aprobado": None,
         "accion": "",
         "user_id": user_id,
+        "hogar_id": hogar_id,
     }
 
 

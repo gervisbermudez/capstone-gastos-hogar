@@ -21,7 +21,7 @@ from typing import Annotated, Any
 
 import redis.asyncio as aioredis
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from . import repositorio
@@ -39,6 +39,7 @@ from .esquemas import (
 )
 from .graph import construir_grafo
 from .observability import init_observability
+from .rutas_hilos import exigir_administrador_del_hogar
 from .worker import (
     PENDING,
     HiloInvalido,
@@ -161,7 +162,7 @@ app.add_middleware(
     allow_origins=_origenes_permitidos(),
     allow_credentials=False,
     allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type"],
+    allow_headers=["Authorization", "Content-Type", "X-Hogar-Id"],
 )
 
 
@@ -184,12 +185,15 @@ async def health() -> dict[str, str]:
 async def crear_tarea(
     consulta: ConsultaTarea,
     usuario: Annotated[object, Depends(usuario_actual)],
+    x_hogar_id: Annotated[str | None, Header(alias="X-Hogar-Id")] = None,
 ) -> TareaCreada:
     user_id = _id_usuario(usuario)
+    hogar_id = await exigir_administrador_del_hogar(user_id, x_hogar_id)
     await exigir_cupo(app.state.redis, user_id, "consultas")
     if consulta.thread_id is not None and await repositorio.hilo_esta_eliminado(
         user_id=user_id,
         thread_id=consulta.thread_id,
+        hogar_id=hogar_id,
     ):
         raise HTTPException(status_code=404, detail="No existe ese hilo")
     try:
@@ -207,6 +211,7 @@ async def crear_tarea(
         consulta.query,
         user_id=user_id,
         thread_id=thread_id,
+        hogar_id=hogar_id,
     )
     return TareaCreada(job_id=job["job_id"], status="PENDING", thread_id=job["thread_id"])
 
@@ -351,6 +356,7 @@ def _montar_router(modulo: str) -> None:
 
 
 _montar_router(".rutas_auth")
+_montar_router(".rutas_hogares")
 _montar_router(".rutas_documentos")
 _montar_router(".rutas_categorias")
 _montar_router(".rutas_notificaciones")

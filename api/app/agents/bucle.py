@@ -20,6 +20,10 @@ usuario_del_turno: contextvars.ContextVar[str] = contextvars.ContextVar(
     "gastos_user_id",
     default="",
 )
+hogar_del_turno: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "gastos_hogar_id",
+    default="",
+)
 
 _loop_del_hilo = threading.local()
 

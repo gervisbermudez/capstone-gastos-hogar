@@ -16,6 +16,7 @@ async def indexar_comprobante(
     categoria: str,
     periodo: str,
     proveedor: str,
+    hogar_id: str | None = None,
 ) -> None:
     await indexar_texto(
         user_id=user_id,
@@ -24,4 +25,5 @@ async def indexar_comprobante(
         categoria=categoria,
         periodo=periodo,
         proveedor=proveedor,
+        hogar_id=hogar_id,
     )

@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client"
 import { BrowserRouter } from "react-router"
 import { App } from "./App"
 import { Avisos } from "./avisos"
+import { ProveedorHogar } from "./hogar"
 import { ProveedorSesion } from "./sesion"
 import { sistema } from "./tema"
 import { ProveedorTema } from "./temaModo"
@@ -18,7 +19,9 @@ createRoot(raiz).render(
         <Avisos />
         <BrowserRouter>
           <ProveedorSesion>
-            <App />
+            <ProveedorHogar>
+              <App />
+            </ProveedorHogar>
           </ProveedorSesion>
         </BrowserRouter>
       </ProveedorTema>

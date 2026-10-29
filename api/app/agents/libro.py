@@ -23,6 +23,7 @@ def usar_consulta(fn: Callable[..., Any] | None) -> None:
 async def consultar_gastos_usuario(
     *,
     user_id: str,
+    hogar_id: str = "",
     categoria: str | None = None,
     periodo_desde: str | None = None,
     periodo_hasta: str | None = None,
@@ -31,13 +32,21 @@ async def consultar_gastos_usuario(
     fn = _consulta
     if fn is None:
         from ..repositorio import consultar_gastos as fn
-    resultado = fn(
-        user_id=user_id,
-        categoria=categoria or None,
-        periodo_desde=periodo_desde or None,
-        periodo_hasta=periodo_hasta or None,
-        proveedor=proveedor or None,
-    )
+    kwargs: dict[str, Any] = {
+        "user_id": user_id,
+        "categoria": categoria or None,
+        "periodo_desde": periodo_desde or None,
+        "periodo_hasta": periodo_hasta or None,
+        "proveedor": proveedor or None,
+    }
+    # El libro del hogar llega cuando el repositorio ya tiene el parámetro.
+    # Si no está, la llamada sigue siendo la de una sola persona.
+    parametros = inspect.signature(fn).parameters
+    if "hogar_id" in parametros:
+        kwargs["hogar_id"] = hogar_id
+        if "rol" in parametros:
+            kwargs["rol"] = "administrador"
+    resultado = fn(**kwargs)
     if inspect.isawaitable(resultado):
         resultado = await resultado
     if not isinstance(resultado, dict):

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -16,6 +17,23 @@ CREATE TABLE IF NOT EXISTS usuarios (
     password_hash TEXT NOT NULL,
     nombre TEXT
 );
+
+CREATE TABLE IF NOT EXISTS hogares (
+    hogar_id TEXT PRIMARY KEY,
+    nombre TEXT NOT NULL,
+    direccion TEXT,
+    creado_en TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS membresias (
+    hogar_id TEXT NOT NULL REFERENCES hogares(hogar_id),
+    user_id TEXT NOT NULL REFERENCES usuarios(user_id),
+    rol TEXT NOT NULL CHECK (rol IN ('administrador', 'asociado')),
+    PRIMARY KEY (hogar_id, user_id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_hogar_administrador
+    ON membresias(hogar_id) WHERE rol = 'administrador';
 
 CREATE TABLE IF NOT EXISTS borradores (
     id TEXT PRIMARY KEY,
@@ -77,8 +95,6 @@ CREATE TABLE IF NOT EXISTS categorias (
     creado_en TEXT NOT NULL
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS ux_categorias_user_nombre
-    ON categorias(user_id, nombre COLLATE NOCASE);
 
 CREATE TABLE IF NOT EXISTS notificaciones (
     id TEXT PRIMARY KEY,
@@ -111,9 +127,105 @@ _COLUMNAS_COMPROBANTES = (
 )
 _COLUMNAS_NOTIFICACIONES = (("descartada_en", "TEXT"),)
 
+# Nullable y sin FK: los INSERT actuales no mandan hogar_id y los DELETE siguen.
+_TABLAS_HOGAR = (
+    "borradores",
+    "comprobantes",
+    "mensajes",
+    "hilos_estado",
+    "categorias",
+)
+
+
+async def _columnas(conn: aiosqlite.Connection, tabla: str) -> set[str]:
+    cursor = await conn.execute(f"PRAGMA table_info({tabla})")
+    filas = await cursor.fetchall()
+    return {fila["name"] for fila in filas}
+
+
+async def _usuarios_sin_membresia(conn: aiosqlite.Connection) -> list[str]:
+    cursor = await conn.execute(
+        """
+        SELECT user_id
+        FROM usuarios AS u
+        WHERE NOT EXISTS (
+            SELECT 1 FROM membresias AS m WHERE m.user_id = u.user_id
+        )
+        """
+    )
+    filas = await cursor.fetchall()
+    return [fila["user_id"] for fila in filas]
+
+
+async def _deshacer(conn: aiosqlite.Connection) -> None:
+    try:
+        await conn.rollback()
+    except Exception:
+        return
+
+
+async def _migrar_hogares(conn: aiosqlite.Connection) -> None:
+    """Un hogar «Mi hogar» por usuario que todavía no tiene membresía.
+
+    Copia ese id a las filas con ``hogar_id`` nulo. En los comprobantes que
+    acaba de asociar deja ``indexado`` nulo: el índice viejo no tiene hogar.
+    No llama a Pinecone ni reindexa.
+    """
+    from .repositorio.comun import _ahora
+
+    for tabla in _TABLAS_HOGAR:
+        if "hogar_id" in await _columnas(conn, tabla):
+            continue
+        await conn.execute(f"ALTER TABLE {tabla} ADD COLUMN hogar_id TEXT")
+
+    if not await _usuarios_sin_membresia(conn):
+        return
+
+    await conn.execute("BEGIN IMMEDIATE")
+    try:
+        for user_id in await _usuarios_sin_membresia(conn):
+            hogar_id = str(uuid.uuid4())
+            await conn.execute(
+                """
+                INSERT INTO hogares (hogar_id, nombre, direccion, creado_en)
+                VALUES (?, 'Mi hogar', NULL, ?)
+                """,
+                (hogar_id, _ahora()),
+            )
+            await conn.execute(
+                """
+                INSERT INTO membresias (hogar_id, user_id, rol)
+                VALUES (?, ?, 'administrador')
+                """,
+                (hogar_id, user_id),
+            )
+            for tabla in _TABLAS_HOGAR:
+                if tabla == "comprobantes":
+                    await conn.execute(
+                        """
+                        UPDATE comprobantes
+                        SET hogar_id = ?, indexado = NULL
+                        WHERE user_id = ? AND hogar_id IS NULL
+                        """,
+                        (hogar_id, user_id),
+                    )
+                    continue
+                await conn.execute(
+                    f"""
+                    UPDATE {tabla}
+                    SET hogar_id = ?
+                    WHERE user_id = ? AND hogar_id IS NULL
+                    """,
+                    (hogar_id, user_id),
+                )
+        await conn.commit()
+    except Exception:
+        await _deshacer(conn)
+        raise
+
 
 async def _migrar(conn: aiosqlite.Connection) -> None:
-    """``ALTER TABLE`` idempotente. Una base vieja gana las columnas; una nueva no se toca."""
+    """``ALTER TABLE`` idempotente. Una base vieja gana las columnas que le faltan."""
     cursor = await conn.execute("PRAGMA table_info(comprobantes)")
     filas = await cursor.fetchall()
     existentes = {fila["name"] for fila in filas}
@@ -136,6 +248,16 @@ async def _migrar(conn: aiosqlite.Connection) -> None:
         if nombre in columnas_aviso:
             continue
         await conn.execute(f"ALTER TABLE notificaciones ADD COLUMN {nombre} {definicion}")
+    await _migrar_hogares(conn)
+    # El nombre es único dentro del hogar. El índice viejo por persona
+    # impedía repetirlo en otra propiedad del mismo administrador.
+    await conn.execute("DROP INDEX IF EXISTS ux_categorias_user_nombre")
+    await conn.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS ux_categorias_hogar_nombre
+        ON categorias(hogar_id, nombre COLLATE NOCASE)
+        """
+    )
 
 
 def ruta_base() -> Path:

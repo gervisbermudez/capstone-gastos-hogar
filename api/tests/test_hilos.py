@@ -178,3 +178,65 @@ def test_un_mensaje_propio_desarchiva_y_la_baja_de_cuenta_tambien(tmp_path, monk
         assert await repositorio.buscar_usuario_por_id(ada) is None
 
     asyncio.run(caso())
+
+
+def test_el_hilo_queda_en_su_hogar(tmp_path, monkeypatch) -> None:
+    _entorno(monkeypatch, tmp_path)
+    with _cliente() as cliente:
+        ada = _registrar(cliente, "ada@example.com")
+        grace = _registrar(cliente, "grace@example.com")
+        headers = {"Authorization": ada["Authorization"]}
+        ajenos = {"Authorization": grace["Authorization"]}
+
+        async def sembrar() -> tuple[str, str]:
+            propio = await repositorio.hogar_por_defecto(ada["user_id"])
+            assert propio
+            otro = await repositorio.crear_hogar(
+                user_id=ada["user_id"],
+                nombre="Casa de verano",
+                direccion=None,
+            )
+            await repositorio.agregar_miembro(
+                user_id=ada["user_id"],
+                hogar_id=propio,
+                email="grace@example.com",
+            )
+            await repositorio.anotar_mensaje(
+                user_id=ada["user_id"],
+                thread_id="hilo-propio",
+                rol="persona",
+                texto="pregunta del hogar",
+                hogar_id=propio,
+            )
+            await repositorio.anotar_mensaje(
+                user_id=ada["user_id"],
+                thread_id="hilo-otro",
+                rol="persona",
+                texto="pregunta de la otra casa",
+                hogar_id=otro["id"],
+            )
+            return propio, otro["id"]
+
+        propio, otro = asyncio.run(sembrar())
+        con_otro = {**headers, "X-Hogar-Id": otro}
+
+        assert _ids(cliente.get("/hilos", headers=headers)) == {"hilo-propio"}
+        assert _ids(cliente.get("/hilos", headers=con_otro)) == {"hilo-otro"}
+        assert cliente.get("/hilos/hilo-otro", headers=headers).status_code == 404
+        assert cliente.get("/hilos/hilo-otro", headers=con_otro).status_code == 200
+        assert cliente.post("/hilos/hilo-otro/archivar", headers=headers).status_code == 404
+        assert cliente.post("/hilos/hilo-otro/archivar", headers=con_otro).status_code == 204
+        assert cliente.get("/hilos", headers=con_otro).json()["items"] == []
+        assert _ids(cliente.get("/hilos?archivados=true", headers=con_otro)) == {"hilo-otro"}
+        assert _ids(cliente.get("/hilos", headers=headers)) == {"hilo-propio"}
+
+        asociado = {**ajenos, "X-Hogar-Id": propio}
+        prohibido = cliente.get("/hilos", headers=asociado)
+        assert prohibido.status_code == 403
+        assert prohibido.json()["detail"] == "Solo el administrador puede usar el chat"
+        assert cliente.get("/hilos/hilo-propio", headers=asociado).status_code == 403
+        assert cliente.delete("/hilos/hilo-propio", headers=asociado).status_code == 403
+        ajeno = cliente.get("/hilos", headers={**headers, "X-Hogar-Id": "hogar-ajeno"})
+        assert ajeno.status_code == 404
+        assert ajeno.json()["detail"] == "No existe ese hogar"
+        assert cliente.get("/hilos", headers=ajenos).status_code == 200

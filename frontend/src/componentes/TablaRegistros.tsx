@@ -3,6 +3,8 @@ import { type ReactNode } from "react"
 import { useNavigate } from "react-router"
 import { etiquetaCategoria, type CamposDocumento, type DocumentoListado, type EstadoDocumento } from "../api/tipos"
 import { formatMonto } from "../formato"
+import { useHogar } from "../hogar"
+import { useSesion } from "../sesion"
 import { IconoPuntos } from "./revision/iconos"
 
 const SOMBRA = "0 12px 40px rgba(28, 27, 23, 0.06)"
@@ -110,7 +112,8 @@ function nodoEstado(estado: EstadoDocumento) {
   )
 }
 
-function Proveedor({ campos }: { campos: CamposDocumento }) {
+function Proveedor({ campos, autor }: { campos: CamposDocumento; autor?: string }) {
+  const email = autor?.trim()
   return (
     <Flex align="center" gap={2.5} minW={0} flex="1">
       <Flex
@@ -128,16 +131,23 @@ function Proveedor({ campos }: { campos: CamposDocumento }) {
       >
         {inicialesDe(campos.proveedor ?? "")}
       </Flex>
-      <Text
-        minW={0}
-        overflow="hidden"
-        textOverflow="ellipsis"
-        whiteSpace="nowrap"
-        fontWeight="medium"
-        color="fg"
-      >
-        {proveedorDe(campos)}
-      </Text>
+      <Stack gap={0} minW={0} flex="1">
+        <Text
+          minW={0}
+          overflow="hidden"
+          textOverflow="ellipsis"
+          whiteSpace="nowrap"
+          fontWeight="medium"
+          color="fg"
+        >
+          {proveedorDe(campos)}
+        </Text>
+        {email ? (
+          <Text fontSize="xs" color="fg.muted" overflowWrap="anywhere" lineHeight="1.3">
+            {email}
+          </Text>
+        ) : null}
+      </Stack>
     </Flex>
   )
 }
@@ -160,7 +170,14 @@ function MenuRegistro({
   onEliminar: (item: DocumentoListado) => void
 }) {
   const navigate = useNavigate()
-  const corregir = vigente(item)
+  const esAsociado = useHogar().rol === "asociado"
+  const { email } = useSesion()
+  const propio =
+    !item.autor_email ||
+    !email ||
+    item.autor_email.trim().toLowerCase() === email.trim().toLowerCase()
+  const corregir = vigente(item) && !esAsociado
+  const puedeEliminar = esAsociado ? item.estado !== "confirmado" && propio : true
 
   return (
     <Menu.Root positioning={{ placement: "bottom-end" }}>
@@ -205,25 +222,29 @@ function MenuRegistro({
                 Editar
               </Menu.Item>
             ) : null}
-            <Menu.Item
-              value="chat"
-              onClick={() =>
-                navigate(`/chat?comprobante=${encodeURIComponent(item.id)}`, {
-                  state: { nuevoComprobante: item.id },
-                })
-              }
-              css={itemMenu}
-            >
-              Chat
-            </Menu.Item>
+            {esAsociado ? null : (
+              <Menu.Item
+                value="chat"
+                onClick={() =>
+                  navigate(`/chat?comprobante=${encodeURIComponent(item.id)}`, {
+                    state: { nuevoComprobante: item.id },
+                  })
+                }
+                css={itemMenu}
+              >
+                Chat
+              </Menu.Item>
+            )}
             {corregir ? (
               <Menu.Item value="anular" onClick={() => onAnular(item)} css={itemPeligro}>
                 Anular
               </Menu.Item>
             ) : null}
-            <Menu.Item value="eliminar" onClick={() => onEliminar(item)} css={itemPeligro}>
-              Eliminar
-            </Menu.Item>
+            {puedeEliminar ? (
+              <Menu.Item value="eliminar" onClick={() => onEliminar(item)} css={itemPeligro}>
+                Eliminar
+              </Menu.Item>
+            ) : null}
           </Menu.Content>
         </Menu.Positioner>
       </Portal>
@@ -274,7 +295,7 @@ function TarjetaRegistro({
       <Card.Body>
         <Stack gap={3}>
           <Flex justify="space-between" gap={3} align="center" minW={0}>
-            <Proveedor campos={item.campos} />
+            <Proveedor campos={item.campos} autor={item.autor_email} />
             <Flex align="center" gap={1} flexShrink={0}>
               {nodoEstado(item.estado)}
               <MenuRegistro item={item} bloqueado={bloqueado} onAnular={onAnular} onEliminar={onEliminar} />
@@ -342,7 +363,7 @@ export function TablaRegistros({ items, bloqueadoId, onAnular, onEliminar }: Pro
                   css={{ "&:last-child td": { borderBottomWidth: 0 } }}
                 >
                   <Celda>
-                    <Proveedor campos={item.campos} />
+                    <Proveedor campos={item.campos} autor={item.autor_email} />
                   </Celda>
                   <Celda>{categoriaDe(item.campos)}</Celda>
                   <Celda>{periodoDe(item.campos)}</Celda>

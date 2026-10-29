@@ -4,9 +4,9 @@ Estado de **Capstone** al 29 de octubre de 2026. Describe lo que la aplicación 
 
 ## Para qué sirve
 
-Cada persona lleva sus comprobantes de **servicios**, **expensas** y **alquiler**. Carga una foto o un PDF, revisa lo que el sistema leyó, lo confirma y después pregunta por sus gastos.
+Cada hogar lleva los comprobantes de **servicios**, **expensas**, **alquiler** y sus categorías propias. Una persona puede tener varios hogares. El administrador carga, revisa, confirma y pregunta por los gastos de la propiedad. Un asociado carga y confirma los suyos.
 
-Hasta que confirma, el monto no entra al libro ni a los gráficos. Otra persona no ve esos comprobantes, esos totales ni esas conversaciones.
+Hasta que se confirma, el monto no entra al libro ni a los gráficos. Quien no es miembro no ve esos comprobantes, esos totales ni esas conversaciones.
 
 Hay dos recuerdos y no se mezclan:
 
@@ -35,7 +35,7 @@ Con sesión, la barra superior tiene el interruptor de tema oscuro al lado de la
 | Tablero | Período, gráficos, carga, borradores y confirmados. |
 | Revisión (`/documentos/:id`) | Vista previa, texto leído y formulario. |
 | Chat | Conversaciones, ejemplos, mensajes y, si hace falta, aprobar o rechazar. |
-| Opciones (`/opciones`) | Nombre que se muestra en lugar del email, cambio de email y de contraseña, tema oscuro, proveedor y modelo en uso, duración de la sesión y eliminar la cuenta. No pide ni muestra claves. |
+| Opciones (`/opciones`) | Hogares, nombre que se muestra en lugar del email, cambio de email y de contraseña, tema oscuro, proveedor y modelo en uso, duración de la sesión y eliminar la cuenta. Un asociado puede desasociarse del hogar activo. No pide ni muestra claves. |
 
 Si no hay borradores ni confirmados en el período, el tablero muestra tres pasos: cargar, revisar y confirmar, preguntar en el chat.
 
@@ -144,11 +144,13 @@ El borrador creado desde el chat aparece en el tablero, con el aviso de que sali
 
 ## Aislamiento
 
-Todo lo que se lee o se escribe es de la persona del token. Un comprobante, un archivo, un total, un job o una conversación de otra persona responden como si no existieran. El resumen de una no incluye montos ni ids de la otra. Una pregunta por el texto del alquiler de otra persona no devuelve ese comprobante.
+El hogar activo viaja en el header `X-Hogar-Id`. Un comprobante, un archivo, un total, un job o una conversación de un hogar ajeno responden como si no existieran. El administrador ve el libro completo de su hogar. El asociado ve el tablero y las cargas de ese hogar, y confirma o descarta solo lo que él cargó. No entra al chat. Una pregunta por el texto de un comprobante de otro hogar no lo devuelve.
+
+Un asociado puede desasociarse desde Opciones. Deja de ver ese hogar y el administrador recibe un aviso. Las cargas quedan en el hogar y el administrador puede borrarlas. Quien administra el hogar no puede desasociarse.
 
 ## Qué no hace
 
-No hay recuperación de contraseña olvidada, ingreso con un proveedor externo, roles, hogar compartido ni un panel para administrar a otras personas. No se sube más de un archivo por comprobante. No hay un OCR aparte del modelo. El navegador no calcula totales.
+No hay recuperación de contraseña olvidada, ingreso con un proveedor externo ni un panel para administrar la plataforma. Cada hogar tiene un administrador y asociados. No se sube más de un archivo por comprobante. No hay un OCR aparte del modelo. El navegador no calcula totales. El asociado no usa el chat.
 
 ## Límites que se notan al usarla
 

@@ -54,6 +54,8 @@ PREGUNTA_LUZ = "Compará la luz de enero contra febrero."
 PREGUNTA_TEXTO = "¿Qué dice la factura de alquiler sobre el ajuste?"
 PREGUNTA_PAGO = "Asentá el pago de las expensas de marzo."
 USUARIO = "usuario-a"
+HOGAR = "hogar-a"
+HOGAR_B = "hogar-b"
 
 
 class RedisFalso:
@@ -372,14 +374,30 @@ def test_las_tools_no_reciben_user_id() -> None:
         calculadora.args_schema,
     ):
         assert "user_id" not in schema.model_fields
+        assert "hogar_id" not in schema.model_fields
     try:
         BusquedaComprobantes.model_validate({"consulta": "ajuste", "user_id": "otro"})
         raise AssertionError("la búsqueda aceptó user_id")
     except ValidationError:
         pass
     try:
+        BusquedaComprobantes.model_validate({"consulta": "ajuste", "hogar_id": "otro"})
+        raise AssertionError("la búsqueda aceptó hogar_id")
+    except ValidationError:
+        pass
+    try:
+        ConsultaGastosInput.model_validate({"hogar_id": "otro"})
+        raise AssertionError("el libro aceptó hogar_id")
+    except ValidationError:
+        pass
+    try:
         ConsultaTarea.model_validate({"query": "hola", "user_id": "otro"})
         raise AssertionError("el body de /tasks aceptó user_id")
+    except ValidationError:
+        pass
+    try:
+        ConsultaTarea.model_validate({"query": "hola", "hogar_id": "otro"})
+        raise AssertionError("el body de /tasks aceptó hogar_id")
     except ValidationError:
         pass
 
@@ -393,7 +411,9 @@ def test_firma_de_indexar() -> None:
         "categoria",
         "periodo",
         "proveedor",
+        "hogar_id",
     ]
+    assert firma.parameters["hogar_id"].default is None
     assert all(
         parametro.kind is inspect.Parameter.KEYWORD_ONLY
         for parametro in firma.parameters.values()
@@ -447,9 +467,15 @@ def test_main_alinea_el_contrato() -> None:
     assert 'os.getenv("INDEX_NAME"' in rag_texto
 
 
-def test_filtro_de_pinecone_lleva_el_usuario() -> None:
-    filtro = filtro_pinecone(user_id="usuario-a", categoria="alquiler", periodo="2026-03")
-    assert filtro["user_id"] == "usuario-a"
+def test_filtro_de_pinecone_lleva_el_hogar() -> None:
+    filtro = filtro_pinecone(
+        user_id="usuario-a",
+        hogar_id="hogar-a",
+        categoria="alquiler",
+        periodo="2026-03",
+    )
+    assert filtro["hogar_id"] == "hogar-a"
+    assert "user_id" not in filtro
     assert "proveedor" not in filtro
     uno = Document(
         page_content="uno",
@@ -496,6 +522,7 @@ def test_indice_aislado_y_ruteo(tmp_path: Path) -> None:
                 categoria="alquiler",
                 periodo="2026-03",
                 proveedor="Inmobiliaria Sur",
+                hogar_id=HOGAR,
             )
         )
         asyncio.run(
@@ -506,6 +533,7 @@ def test_indice_aislado_y_ruteo(tmp_path: Path) -> None:
                 categoria="alquiler",
                 periodo="2026-03",
                 proveedor="Otra",
+                hogar_id=HOGAR_B,
             )
         )
         asyncio.run(
@@ -516,6 +544,7 @@ def test_indice_aislado_y_ruteo(tmp_path: Path) -> None:
                 categoria="servicios",
                 periodo=f"{datetime.now().year}-01",
                 proveedor="Edenor",
+                hogar_id=HOGAR,
             )
         )
         asyncio.run(
@@ -526,25 +555,51 @@ def test_indice_aislado_y_ruteo(tmp_path: Path) -> None:
                 categoria="servicios",
                 periodo=f"{datetime.now().year}-02",
                 proveedor="Edesur",
+                hogar_id=HOGAR,
             )
         )
 
-        propios = rag.buscar_sync(consulta="ajuste", user_id=USUARIO, categoria="alquiler")
+        propios = rag.buscar_sync(
+            consulta="ajuste",
+            user_id=USUARIO,
+            hogar_id=HOGAR,
+            categoria="alquiler",
+        )
         assert propios
-        assert all(fila["user_id"] == USUARIO for fila in propios)
+        assert all(fila["hogar_id"] == HOGAR for fila in propios)
         assert "25 por ciento" in propios[0]["contenido"]
         assert "Secreto ajeno" not in " ".join(fila["contenido"] for fila in propios)
-        ajenos = rag.buscar_sync(consulta="ajuste", user_id="usuario-b", categoria="alquiler")
-        assert ajenos and all(fila["user_id"] == "usuario-b" for fila in ajenos)
+        ajenos = rag.buscar_sync(
+            consulta="ajuste",
+            user_id="usuario-b",
+            hogar_id=HOGAR_B,
+            categoria="alquiler",
+        )
+        assert ajenos and all(fila["hogar_id"] == HOGAR_B for fila in ajenos)
         assert "25 por ciento" not in " ".join(fila["contenido"] for fila in ajenos)
-        assert rag.buscar_sync(consulta="ajuste", user_id="", categoria="alquiler") == []
+        assert rag.buscar_sync(consulta="ajuste", user_id="", hogar_id=HOGAR, categoria="alquiler") == []
+        assert rag.buscar_sync(consulta="ajuste", user_id=USUARIO, hogar_id="", categoria="alquiler") == []
+        del_hogar = rag.buscar_sync(
+            consulta="ajuste",
+            user_id="usuario-b",
+            hogar_id=HOGAR,
+            categoria="alquiler",
+        )
+        assert del_hogar and all(fila["hogar_id"] == HOGAR for fila in del_hogar)
+        assert "Secreto ajeno" not in " ".join(fila["contenido"] for fila in del_hogar)
 
-        edenor = rag.buscar_sync(consulta="medidor", user_id=USUARIO, proveedor="edenor")
+        edenor = rag.buscar_sync(
+            consulta="medidor",
+            user_id=USUARIO,
+            hogar_id=HOGAR,
+            proveedor="edenor",
+        )
         assert len(edenor) == 1
         assert edenor[0]["proveedor"] == "Edenor"
         enero = rag.buscar_sync(
             consulta="factura",
             user_id=USUARIO,
+            hogar_id=HOGAR,
             periodo=f"{datetime.now().year}-01",
         )
         assert len(enero) == 1
@@ -560,6 +615,7 @@ def test_indice_aislado_y_ruteo(tmp_path: Path) -> None:
                 categoria="alquiler",
                 periodo="2026-03",
                 proveedor="Inmobiliaria Sur",
+                hogar_id=HOGAR,
             )
         )
         lineas = (tmp / "comprobantes.jsonl").read_text(encoding="utf-8").strip().splitlines()
@@ -571,9 +627,10 @@ def test_indice_aislado_y_ruteo(tmp_path: Path) -> None:
                     user_id=USUARIO,
                     documento_id="mal",
                     texto="hola",
-                    categoria="luz",
+                    categoria="x" * 81,
                     periodo="2026-03",
                     proveedor="X",
+                    hogar_id=HOGAR,
                 )
             )
             raise AssertionError("indexó una categoría inválida")
@@ -618,11 +675,12 @@ def _correr_grafo(app, llamadas: list) -> None:
         ]
 
     config = config_hilo("hilo-montos", job_id="job-montos")
-    _invocar(app, estado_inicial(PREGUNTA_MONTOS, USUARIO), config)
+    _invocar(app, estado_inicial(PREGUNTA_MONTOS, USUARIO, hogar_id=HOGAR), config)
     snap = app.get_state(config)
     assert snap.next == ()
     assert snap.values["critica"] is False
     assert snap.values["user_id"] == USUARIO
+    assert snap.values["hogar_id"] == HOGAR
     assert _agentes(snap.values) == ["analista"]
     assert extraer_texto(snap.values["messages"][-1]) == "Síntesis de prueba."
     consultas = [item for item in llamadas if item[0] == "consultar"]
@@ -631,9 +689,10 @@ def _correr_grafo(app, llamadas: list) -> None:
     assert consultas[0][1]["categoria"] == "expensas"
     assert consultas[0][1]["periodo_desde"] == f"{anio}-03"
     assert "user_id" not in consultas[0][1]
+    assert "hogar_id" not in consultas[0][1]
     assert not any(item[0] == "buscar" for item in llamadas)
 
-    _invocar(app, estado_inicial(PREGUNTA_PAGUE, USUARIO), config)
+    _invocar(app, estado_inicial(PREGUNTA_PAGUE, USUARIO, hogar_id=HOGAR), config)
     snap = app.get_state(config)
     assert _agentes(snap.values) == ["analista"]
     assert len(_humanos(snap.values)) == 2
@@ -642,7 +701,7 @@ def _correr_grafo(app, llamadas: list) -> None:
 
     llamadas.clear()
     config_luz = config_hilo("hilo-luz", job_id="job-luz")
-    _invocar(app, estado_inicial(PREGUNTA_LUZ, USUARIO), config_luz)
+    _invocar(app, estado_inicial(PREGUNTA_LUZ, USUARIO, hogar_id=HOGAR), config_luz)
     snap = app.get_state(config_luz)
     assert snap.next == ()
     assert snap.values["critica"] is False
@@ -655,10 +714,11 @@ def _correr_grafo(app, llamadas: list) -> None:
     assert args["periodo_hasta"] == f"{anio}-02"
     assert llamadas[0][2] == USUARIO
     assert "user_id" not in args
+    assert "hogar_id" not in args
 
     llamadas.clear()
     config_texto = config_hilo("hilo-texto", job_id="job-texto")
-    _invocar(app, estado_inicial(PREGUNTA_TEXTO, USUARIO), config_texto)
+    _invocar(app, estado_inicial(PREGUNTA_TEXTO, USUARIO, hogar_id=HOGAR), config_texto)
     snap = app.get_state(config_texto)
     assert snap.next == ()
     assert _agentes(snap.values) == ["investigador"]
@@ -666,6 +726,7 @@ def _correr_grafo(app, llamadas: list) -> None:
     assert llamadas[0][1]["categoria"] == "alquiler"
     assert llamadas[0][2] == USUARIO
     assert "user_id" not in llamadas[0][1]
+    assert "hogar_id" not in llamadas[0][1]
     aporte = snap.values["contribuciones"][-1]["aporte"]
     assert "25 por ciento" in aporte
     assert "Secreto ajeno" not in aporte
@@ -673,7 +734,7 @@ def _correr_grafo(app, llamadas: list) -> None:
 
     llamadas.clear()
     config_pago = config_hilo("hilo-pago", job_id="job-pago")
-    _invocar(app, estado_inicial(PREGUNTA_PAGO, USUARIO), config_pago)
+    _invocar(app, estado_inicial(PREGUNTA_PAGO, USUARIO, hogar_id=HOGAR), config_pago)
     snap = app.get_state(config_pago)
     assert snap.next
     assert snap.values["critica"] is True
@@ -692,7 +753,7 @@ def _correr_grafo(app, llamadas: list) -> None:
     avisos = hitl.AVISOS
     hitl.AVISOS = avisos.with_name("rechazo.jsonl")
     try:
-        _invocar(app, estado_inicial(PREGUNTA_PAGO, USUARIO), config_no)
+        _invocar(app, estado_inicial(PREGUNTA_PAGO, USUARIO, hogar_id=HOGAR), config_no)
         _invocar(app, Command(resume="no"), config_no)
         rechazado = app.get_state(config_no)
         assert rechazado.values["aprobado"] is False

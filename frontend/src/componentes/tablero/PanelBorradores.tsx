@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react"
 import { Button, Card, CloseButton, Dialog, Flex, Portal, Stack, Text } from "@chakra-ui/react"
 import { Link } from "react-router"
 import { etiquetaCategoria, type CamposDocumento } from "../../api/tipos"
+import { useHogar } from "../../hogar"
+import { useSesion } from "../../sesion"
 import { EsqueletoBorradores } from "../esqueleto"
 import { formatMonto } from "../../formato"
 
@@ -13,7 +15,12 @@ const botonSolido = {
   _hover: { bg: "solido.hover", color: "fg.sobreSolido" },
 } as const
 
-type Borrador = { id: string; campos: CamposDocumento }
+type Borrador = { id: string; campos: CamposDocumento; autor_email?: string }
+
+function esPropio(autor: string | undefined, email: string | null): boolean {
+  if (!autor || !email) return true
+  return autor.trim().toLowerCase() === email.trim().toLowerCase()
+}
 
 function proveedorDe(campos: CamposDocumento): string {
   return campos.proveedor?.trim() || "Sin proveedor"
@@ -44,6 +51,8 @@ export function PanelBorradores({
   descartando: string | null
   alDescartar: (id: string) => void
 }) {
+  const esAsociado = useHogar().rol === "asociado"
+  const { email } = useSesion()
   const [pendiente, setPendiente] = useState<Borrador | null>(null)
   const esperando = useRef(false)
   const ocupado = descartando !== null
@@ -159,6 +168,7 @@ export function PanelBorradores({
                 </Text>
                 <Text fontSize="sm" color="fg.muted">
                   {detalleDe(item.campos)}
+                  {item.autor_email ? ` · ${item.autor_email}` : ""}
                 </Text>
               </Stack>
               <Flex gap={2} wrap="wrap">
@@ -171,18 +181,20 @@ export function PanelBorradores({
                     _hover: { bg: "marca.sol", color: "marca.carbon" },
                   }}
                 >
-                  <Link to={`/documentos/${item.id}`}>Revisar</Link>
+                  <Link to={`/documentos/${item.id}`}>{esPropio(item.autor_email, email) ? "Revisar" : "Ver"}</Link>
                 </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  loading={descartando === item.id}
-                  disabled={descartando !== null && descartando !== item.id}
-                  onClick={() => pedirDescarte(item)}
-                >
-                  Descartar
-                </Button>
+                {esAsociado && !esPropio(item.autor_email, email) ? null : (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    loading={descartando === item.id}
+                    disabled={descartando !== null && descartando !== item.id}
+                    onClick={() => pedirDescarte(item)}
+                  >
+                    Descartar
+                  </Button>
+                )}
               </Flex>
             </Flex>
           ))}

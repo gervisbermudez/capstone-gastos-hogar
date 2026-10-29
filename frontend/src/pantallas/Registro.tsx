@@ -10,7 +10,7 @@ export function Registro() {
   return (
     <FormularioAcceso
       titulo="Crear cuenta"
-      descripcion="Cada cuenta ve solo sus comprobantes. Usá una frase larga."
+      descripcion="Al registrarte quedás a cargo de Mi hogar. Usá una frase larga."
       enviarEtiqueta="Crear cuenta"
       alterno={{ texto: "¿Ya tenés cuenta?", to: "/ingreso", etiqueta: "Ingresar" }}
       onEnviar={async (email, password) => {

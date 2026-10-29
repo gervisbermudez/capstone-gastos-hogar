@@ -1,6 +1,7 @@
-import { Button, Flex, Menu, Portal, Stack, Text } from "@chakra-ui/react"
+import { Button, Flex, Menu, NativeSelect, Portal, Stack, Text } from "@chakra-ui/react"
 import { type ReactNode } from "react"
 import { Link } from "react-router"
+import { useHogar } from "../hogar"
 import { Logotipo } from "./Logotipo"
 
 export type Seccion = "tablero" | "registros" | "categorias" | "cargar" | "chat" | "opciones"
@@ -109,11 +110,40 @@ const SECCIONES: { id: Seccion; to: string; etiqueta: string; Icono: () => React
 ]
 
 const ENLACES_OPCIONES = [
+  { value: "hogar", to: "/opciones#hogar", etiqueta: "Hogar" },
   { value: "cuenta", to: "/opciones#cuenta", etiqueta: "Cuenta" },
   { value: "apariencia", to: "/opciones#apariencia", etiqueta: "Apariencia" },
   { value: "modelo", to: "/opciones#modelo", etiqueta: "Modelo" },
   { value: "sesion", to: "/opciones#sesion", etiqueta: "Sesión" },
 ] as const
+
+const OCULTAS_ASOCIADO = new Set<Seccion>(["categorias", "chat"])
+
+function SelectorHogar() {
+  const { hogares, hogarActivo, elegir } = useHogar()
+  if (hogares.length === 0) return null
+  const valor = hogarActivo?.id ?? hogares[0]?.id ?? ""
+  return (
+    <NativeSelect.Root size="sm" w="100%">
+      <NativeSelect.Field
+        aria-label="Hogar"
+        bg="bg.panel"
+        color="fg"
+        borderColor="borde"
+        borderRadius="full"
+        value={valor}
+        onChange={(event) => elegir(event.target.value)}
+      >
+        {hogares.map((hogar) => (
+          <option key={hogar.id} value={hogar.id}>
+            {`${hogar.nombre} · ${hogar.rol === "administrador" ? "Administrador" : "Asociado"}`}
+          </option>
+        ))}
+      </NativeSelect.Field>
+      <NativeSelect.Indicator />
+    </NativeSelect.Root>
+  )
+}
 
 const itemMenu = {
   px: 3,
@@ -135,15 +165,18 @@ type Props = {
 }
 
 export function BarraLateral({ activo, email, alias, onSalir, onNavigate }: Props) {
+  const { rol } = useHogar()
   const etiquetaUsuario = alias?.trim() || email
   const enOpciones = activo === "opciones"
+  const secciones = SECCIONES.filter((seccion) => rol !== "asociado" || !OCULTAS_ASOCIADO.has(seccion.id))
 
   return (
     <Flex direction="column" h="100%" minH={0} flex="1" overflow="auto" px={4} py={6} gap={8}>
       <Stack gap={8}>
         <Logotipo tamano="sm" />
+        <SelectorHogar />
         <Stack as="nav" aria-label="Secciones" gap={2}>
-          {SECCIONES.map(({ id, to, etiqueta, Icono }) => {
+          {secciones.map(({ id, to, etiqueta, Icono }) => {
             const esActivo = activo === id
             return (
               <Button

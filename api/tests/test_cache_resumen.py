@@ -124,6 +124,12 @@ def _login(cliente: TestClient, email: str, password: str) -> tuple[str, str]:
     return cuerpo["access_token"], cuerpo["user_id"]
 
 
+def _hogar(user_id: str) -> str:
+    hogar_id = asyncio.run(repositorio.hogar_por_defecto(user_id))
+    assert isinstance(hogar_id, str) and hogar_id
+    return hogar_id
+
+
 def _resumen(cliente: TestClient, token: str) -> dict:
     respuesta = cliente.get(
         "/resumen",
@@ -178,7 +184,7 @@ def test_la_segunda_lectura_no_consulta_y_anular_obliga_a_leer(tmp_path, monkeyp
         primero = _resumen(cliente, token_ana)
         assert primero["por_mes"] == [{"periodo": "2026-03", "total": "10.10"}]
         assert llamadas == [ana]
-        nombre = clave(ana, "2026-01", "2026-12")
+        nombre = clave(_hogar(ana), "2026-01", "2026-12")
         assert nombre is not None
         assert redis.ttl[nombre] == 60
 
@@ -199,7 +205,7 @@ def test_la_segunda_lectura_no_consulta_y_anular_obliga_a_leer(tmp_path, monkeyp
         )
         assert anulado.status_code == 200
         assert nombre not in redis.datos
-        assert clave(beto, "2026-01", "2026-12") in redis.datos
+        assert clave(_hogar(beto), "2026-01", "2026-12") in redis.datos
 
         fresco = _resumen(cliente, token_ana)
         assert fresco["por_mes"] == []
@@ -249,7 +255,9 @@ def test_asentar_pago_borra_la_cache_de_esa_persona(tmp_path, monkeypatch) -> No
 
         async def caso() -> None:
             ana = await repositorio.crear_usuario("ana@example.com", auth.hashear("clave-de-ana-larga"))
-            nombre = clave(ana, "2026-01", "2026-12")
+            hogar = await repositorio.hogar_por_defecto(ana)
+            assert isinstance(hogar, str) and hogar
+            nombre = clave(hogar, "2026-01", "2026-12")
             ajena = "gastos:resumen:otra-persona:2026-01:2026-12"
             assert nombre is not None
             redis.datos[nombre] = "{}"
@@ -311,7 +319,7 @@ def test_payload_invalido_se_descarta_y_el_siguiente_sale_de_la_cache(
 
     with _cliente(redis) as cliente:
         token, ana = _login(cliente, "ana@example.com", "clave-de-ana-larga")
-        nombre = clave(ana, "2026-01", "2026-12")
+        nombre = clave(_hogar(ana), "2026-01", "2026-12")
         assert nombre is not None
         redis.datos[nombre] = json.dumps(malo)
         caplog.clear()
@@ -434,7 +442,7 @@ def test_confirmar_y_corregir_borran_solo_la_cache_de_esa_persona(tmp_path, monk
 
     with _cliente(redis) as cliente:
         token, ana = _login(cliente, "ana@example.com", "clave-de-ana-larga")
-        nombre = clave(ana, "2026-01", "2026-12")
+        nombre = clave(_hogar(ana), "2026-01", "2026-12")
         assert nombre is not None
         redis.datos[nombre] = '{"por_mes":[{"periodo":"2026-03","total":"99.99"}]}'
         confirmado = cliente.post(

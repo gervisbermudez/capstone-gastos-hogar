@@ -6,6 +6,7 @@ import {
   CloseButton,
   Dialog,
   Field,
+  Flex,
   Heading,
   Input,
   Portal,
@@ -14,11 +15,13 @@ import {
   Text,
 } from "@chakra-ui/react"
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react"
-import { useLocation, useNavigate } from "react-router"
+import { useLocation, useNavigate, useSearchParams } from "react-router"
 import { ErrorApi, cliente, esAbort } from "../api/cliente"
-import type { ModeloActivo, UsuarioActual } from "../api/tipos"
+import type { Hogar, MiembroHogar, ModeloActivo, RolHogar, UsuarioActual } from "../api/tipos"
 import { toaster } from "../avisos"
+import { suscribirEventos } from "../canalBus"
 import { EsqueletoLineas } from "../componentes/esqueleto"
+import { useHogar } from "../hogar"
 import { useSesion } from "../sesion"
 import { useTema } from "../temaModo"
 
@@ -616,6 +619,562 @@ function BloqueModelo() {
   )
 }
 
+function etiquetaRol(rol: RolHogar): string {
+  return rol === "administrador" ? "Administrador" : "Asociado"
+}
+
+function direccionEscrita(valor: string): string | null {
+  const texto = valor.trim()
+  return texto === "" ? null : texto
+}
+
+function VistaHogar({ hogar, onDejado }: { hogar: Hogar; onDejado: () => Promise<void> }) {
+  const [abierto, setAbierto] = useState(false)
+  const [saliendo, setSaliendo] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const vivo = useVivo()
+
+  useEffect(() => {
+    setAbierto(false)
+    setError(null)
+  }, [hogar.id])
+
+  function abrir() {
+    if (saliendo) return
+    setError(null)
+    setAbierto(true)
+  }
+
+  function alCambioAbierto(detalle: { open: boolean }) {
+    if (saliendo && !detalle.open) return
+    setAbierto(detalle.open)
+    if (!detalle.open) setError(null)
+  }
+
+  async function alConfirmar(event: FormEvent) {
+    event.preventDefault()
+    if (saliendo) return
+    setSaliendo(true)
+    setError(null)
+    try {
+      await cliente.dejarHogar(hogar.id)
+    } catch (falla) {
+      if (!vivo.current) return
+      setError(mensajeDe(falla, "No se pudo desasociar."))
+      setSaliendo(false)
+      return
+    }
+    toaster.create({ title: "Te desasociaste", type: "success" })
+    if (!vivo.current) return
+    setAbierto(false)
+    try {
+      await onDejado()
+    } catch {
+      if (vivo.current) setError("Te desasociaste, pero no se pudo actualizar la lista.")
+    } finally {
+      if (vivo.current) setSaliendo(false)
+    }
+  }
+
+  return (
+    <Stack gap={4}>
+      <Text color="fg.muted" lineHeight="1.5">
+        En este hogar sos asociado. Si te vas, las cargas quedan en el hogar. El administrador puede borrarlas.
+      </Text>
+      <Stack gap={1}>
+        <Text fontSize="sm" color="fg.muted">
+          Nombre
+        </Text>
+        <Text fontWeight="medium" color="fg" overflowWrap="anywhere">
+          {hogar.nombre}
+        </Text>
+      </Stack>
+      <Stack gap={1}>
+        <Text fontSize="sm" color="fg.muted">
+          Dirección
+        </Text>
+        <Text color="fg" overflowWrap="anywhere">
+          {hogar.direccion ?? "Sin dirección"}
+        </Text>
+      </Stack>
+      <BotonFalla onClick={abrir} loading={saliendo}>
+        Desasociarme
+      </BotonFalla>
+      <Dialog.Root
+        role="alertdialog"
+        open={abierto}
+        onOpenChange={alCambioAbierto}
+        closeOnEscape={!saliendo}
+        closeOnInteractOutside={!saliendo}
+      >
+        <Portal>
+          <Dialog.Backdrop />
+          <Dialog.Positioner>
+            <Dialog.Content
+              bg="bg.panel"
+              color="fg"
+              borderWidth="0"
+              borderRadius="l3"
+              boxShadow="0 24px 60px rgba(28, 27, 23, 0.12)"
+              w="calc(100vw - 2rem)"
+              maxW="28rem"
+              _dark={{ borderWidth: "1px", borderColor: "borde" }}
+            >
+              <Dialog.Header>
+                <Dialog.Title fontWeight="500" fontSize="1.5rem" letterSpacing="-0.03em" color="fg">
+                  Desasociarte de este hogar
+                </Dialog.Title>
+              </Dialog.Header>
+              <form noValidate onSubmit={(event) => void alConfirmar(event)}>
+                <Dialog.Body>
+                  <Stack gap={4}>
+                    <Dialog.Description color="fg.muted">
+                      Dejás de ver{" "}
+                      <Text as="span" fontWeight="medium" color="fg" overflowWrap="anywhere">
+                        {hogar.nombre}
+                      </Text>
+                      . Las cargas quedan en el hogar y el administrador puede borrarlas. También puede volverte a sumar.
+                    </Dialog.Description>
+                    {error ? <Alerta>{error}</Alerta> : null}
+                  </Stack>
+                </Dialog.Body>
+                <Dialog.Footer gap={3}>
+                  <Dialog.ActionTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      borderRadius="full"
+                      color="fg"
+                      disabled={saliendo}
+                      _hover={{ bg: "bg.hover", color: "fg" }}
+                    >
+                      Cancelar
+                    </Button>
+                  </Dialog.ActionTrigger>
+                  <BotonFalla type="submit" loading={saliendo}>
+                    Desasociarme
+                  </BotonFalla>
+                </Dialog.Footer>
+              </form>
+              <Dialog.CloseTrigger asChild>
+                <CloseButton aria-label="Cerrar" color="fg" disabled={saliendo} />
+              </Dialog.CloseTrigger>
+            </Dialog.Content>
+          </Dialog.Positioner>
+        </Portal>
+      </Dialog.Root>
+    </Stack>
+  )
+}
+
+function FormularioEditarHogar({ hogar, onGuardado }: { hogar: Hogar; onGuardado: () => Promise<void> }) {
+  const [nombre, setNombre] = useState(hogar.nombre)
+  const [direccion, setDireccion] = useState(hogar.direccion ?? "")
+  const [enviando, setEnviando] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const vivo = useVivo()
+
+  useEffect(() => {
+    setNombre(hogar.nombre)
+    setDireccion(hogar.direccion ?? "")
+  }, [hogar.id, hogar.nombre, hogar.direccion])
+
+  async function alEnviar(event: FormEvent) {
+    event.preventDefault()
+    if (enviando) return
+    const texto = nombre.trim()
+    if (!texto) {
+      setError("Completá el nombre.")
+      return
+    }
+    setEnviando(true)
+    setError(null)
+    try {
+      await cliente.actualizarHogar(hogar.id, {
+        nombre: texto,
+        direccion: direccionEscrita(direccion),
+      })
+      await onGuardado()
+      toaster.create({ title: "Hogar actualizado", type: "success" })
+    } catch (falla) {
+      if (!vivo.current) return
+      setError(mensajeDe(falla, "No se pudo guardar el hogar."))
+    } finally {
+      if (vivo.current) setEnviando(false)
+    }
+  }
+
+  return (
+    <form noValidate onSubmit={(event) => void alEnviar(event)}>
+      <Stack gap={4}>
+        {error ? <Alerta>{error}</Alerta> : null}
+        <Field.Root required>
+          <Field.Label color="fg" fontWeight="medium">
+            Nombre
+          </Field.Label>
+          <Input
+            type="text"
+            name="hogar-nombre"
+            autoComplete="off"
+            maxLength={80}
+            value={nombre}
+            onChange={(event) => {
+              setNombre(event.target.value)
+              setError(null)
+            }}
+          />
+        </Field.Root>
+        <Field.Root>
+          <Field.Label color="fg" fontWeight="medium">
+            Dirección
+          </Field.Label>
+          <Input
+            type="text"
+            name="hogar-direccion"
+            autoComplete="street-address"
+            maxLength={160}
+            value={direccion}
+            onChange={(event) => {
+              setDireccion(event.target.value)
+              setError(null)
+            }}
+          />
+          <Field.HelperText color="fg.muted">Si la dejás vacía, se borra.</Field.HelperText>
+        </Field.Root>
+        <BotonSol loading={enviando}>Guardar</BotonSol>
+      </Stack>
+    </form>
+  )
+}
+
+function ListaMiembros({ hogarId }: { hogarId: string }) {
+  const [items, setItems] = useState<MiembroHogar[] | null>(null)
+  const [cargando, setCargando] = useState(true)
+  const [errorLista, setErrorLista] = useState<string | null>(null)
+  const [email, setEmail] = useState("")
+  const [errorAlta, setErrorAlta] = useState<string | null>(null)
+  const [sumando, setSumando] = useState(false)
+  const [quitando, setQuitando] = useState<string | null>(null)
+  const [errorQuitar, setErrorQuitar] = useState<string | null>(null)
+  const [version, setVersion] = useState(0)
+  const vivo = useVivo()
+
+  useEffect(() => {
+    return suscribirEventos((evento) => {
+      if (evento.tipo !== "hogar.membresia" || evento.recurso?.id !== hogarId) return
+      setVersion((valor) => valor + 1)
+    })
+  }, [hogarId])
+
+  useEffect(() => {
+    const ctrl = new AbortController()
+    setCargando(true)
+    cliente
+      .listarMiembros(hogarId, ctrl.signal)
+      .then((lista) => {
+        if (!vivo.current) return
+        setItems(lista.items)
+        setErrorLista(null)
+      })
+      .catch((falla: unknown) => {
+        if (!vivo.current || esAbort(falla)) return
+        setErrorLista(mensajeDe(falla, "No se pudieron cargar los miembros."))
+      })
+      .finally(() => {
+        if (vivo.current && !ctrl.signal.aborted) setCargando(false)
+      })
+    return () => ctrl.abort()
+  }, [hogarId, version, vivo])
+
+  async function alSumar(event: FormEvent) {
+    event.preventDefault()
+    if (sumando || quitando) return
+    const texto = email.trim()
+    if (!texto) {
+      setErrorAlta("Completá el email.")
+      return
+    }
+    setSumando(true)
+    setErrorAlta(null)
+    try {
+      await cliente.agregarMiembro(hogarId, texto)
+      toaster.create({ title: "Miembro sumado", type: "success" })
+      if (!vivo.current) return
+      setEmail("")
+      setVersion((valor) => valor + 1)
+    } catch (falla) {
+      if (!vivo.current) return
+      setErrorAlta(mensajeDe(falla, "No se pudo sumar el miembro."))
+    } finally {
+      if (vivo.current) setSumando(false)
+    }
+  }
+
+  async function alQuitar(userId: string) {
+    if (quitando || sumando) return
+    setQuitando(userId)
+    setErrorQuitar(null)
+    try {
+      await cliente.quitarMiembro(hogarId, userId)
+      toaster.create({ title: "Miembro quitado", type: "success" })
+      if (!vivo.current) return
+      setVersion((valor) => valor + 1)
+    } catch (falla) {
+      if (!vivo.current) return
+      setErrorQuitar(mensajeDe(falla, "No se pudo quitar el miembro."))
+    } finally {
+      if (vivo.current) setQuitando(null)
+    }
+  }
+
+  return (
+    <Stack gap={4}>
+      <Text as="h3" fontWeight="medium" color="fg">
+        Miembros
+      </Text>
+      {errorLista ? <Alerta>{errorLista}</Alerta> : null}
+      {cargando && items === null ? (
+        <EsqueletoLineas etiqueta="Cargando miembros" anchos={["14rem", "11rem"]} />
+      ) : null}
+      {items ? (
+        <Stack gap={3}>
+          {items.map((miembro) => (
+            <Flex key={miembro.user_id} justify="space-between" align="center" gap={3} minW={0}>
+              <Stack gap={0} minW={0}>
+                <Text fontWeight="medium" color="fg" overflowWrap="anywhere">
+                  {miembro.email}
+                </Text>
+                <Text fontSize="sm" color="fg.muted" overflowWrap="anywhere">
+                  {miembro.nombre ? `${miembro.nombre} · ${etiquetaRol(miembro.rol)}` : etiquetaRol(miembro.rol)}
+                </Text>
+              </Stack>
+              {miembro.rol === "asociado" ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  flexShrink={0}
+                  borderRadius="full"
+                  color="estadoTexto.falla"
+                  loading={quitando === miembro.user_id}
+                  disabled={quitando !== null || sumando}
+                  onClick={() => void alQuitar(miembro.user_id)}
+                >
+                  Quitar
+                </Button>
+              ) : null}
+            </Flex>
+          ))}
+        </Stack>
+      ) : null}
+      {errorQuitar ? <Alerta>{errorQuitar}</Alerta> : null}
+      <form noValidate onSubmit={(event) => void alSumar(event)}>
+        <Stack gap={4}>
+          {errorAlta ? <Alerta>{errorAlta}</Alerta> : null}
+          <Field.Root required>
+            <Field.Label color="fg" fontWeight="medium">
+              Email
+            </Field.Label>
+            <Input
+              type="email"
+              inputMode="email"
+              autoComplete="off"
+              name="miembro-email"
+              value={email}
+              onChange={(event) => {
+                setEmail(event.target.value)
+                setErrorAlta(null)
+              }}
+            />
+            <Field.HelperText color="fg.muted">Tiene que ser el email de una cuenta que ya existe.</Field.HelperText>
+          </Field.Root>
+          <BotonSol loading={sumando} disabled={quitando !== null}>
+            Sumar
+          </BotonSol>
+        </Stack>
+      </form>
+    </Stack>
+  )
+}
+
+function FormularioNuevoHogar() {
+  const { elegir, recargar } = useHogar()
+  const [nombre, setNombre] = useState("")
+  const [direccion, setDireccion] = useState("")
+  const [enviando, setEnviando] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const vivo = useVivo()
+
+  async function alEnviar(event: FormEvent) {
+    event.preventDefault()
+    if (enviando) return
+    const texto = nombre.trim()
+    if (!texto) {
+      setError("Completá el nombre.")
+      return
+    }
+    setEnviando(true)
+    setError(null)
+    try {
+      const creado = await cliente.crearHogar({
+        nombre: texto,
+        direccion: direccionEscrita(direccion),
+      })
+      await recargar()
+      elegir(creado.id)
+      toaster.create({ title: "Hogar creado", type: "success" })
+      if (!vivo.current) return
+      setNombre("")
+      setDireccion("")
+    } catch (falla) {
+      if (!vivo.current) return
+      setError(mensajeDe(falla, "No se pudo crear el hogar."))
+    } finally {
+      if (vivo.current) setEnviando(false)
+    }
+  }
+
+  return (
+    <Tarjeta titulo="Nuevo hogar">
+      <form noValidate onSubmit={(event) => void alEnviar(event)}>
+        <Stack gap={4}>
+          {error ? <Alerta>{error}</Alerta> : null}
+          <Field.Root required>
+            <Field.Label color="fg" fontWeight="medium">
+              Nombre
+            </Field.Label>
+            <Input
+              type="text"
+              name="hogar-nuevo-nombre"
+              autoComplete="off"
+              maxLength={80}
+              value={nombre}
+              onChange={(event) => {
+                setNombre(event.target.value)
+                setError(null)
+              }}
+            />
+          </Field.Root>
+          <Field.Root>
+            <Field.Label color="fg" fontWeight="medium">
+              Dirección
+            </Field.Label>
+            <Input
+              type="text"
+              name="hogar-nuevo-direccion"
+              autoComplete="street-address"
+              maxLength={160}
+              value={direccion}
+              onChange={(event) => {
+                setDireccion(event.target.value)
+                setError(null)
+              }}
+            />
+            <Field.HelperText color="fg.muted">
+              La dirección es opcional. Quedás como administrador.
+            </Field.HelperText>
+          </Field.Root>
+          <BotonSol loading={enviando}>Crear hogar</BotonSol>
+        </Stack>
+      </form>
+    </Tarjeta>
+  )
+}
+
+function ListaPertenencia({
+  hogares,
+  activoId,
+  onElegir,
+}: {
+  hogares: Hogar[]
+  activoId: string | null
+  onElegir: (id: string) => void
+}) {
+  return (
+    <Stack as="ul" gap={2} m={0} p={0} listStyleType="none" aria-label="Hogares a los que pertenecés">
+      {hogares.map((hogar) => {
+        const activo = hogar.id === activoId
+        return (
+          <Box as="li" key={hogar.id}>
+            <Button
+              type="button"
+              variant="ghost"
+              justifyContent="space-between"
+              alignItems="center"
+              gap={3}
+              w="100%"
+              h="auto"
+              py={2}
+              px={3}
+              borderRadius="12px"
+              fontWeight="normal"
+              bg={activo ? "bg.subtle" : "transparent"}
+              color="fg"
+              aria-pressed={activo}
+              onClick={() => onElegir(hogar.id)}
+            >
+              <Text as="span" fontWeight="medium" color="fg" textAlign="left" overflowWrap="anywhere">
+                {hogar.nombre}
+              </Text>
+              <Text as="span" fontSize="sm" color="fg.muted" flexShrink={0}>
+                {etiquetaRol(hogar.rol)}
+              </Text>
+            </Button>
+          </Box>
+        )
+      })}
+    </Stack>
+  )
+}
+
+function BloqueHogar() {
+  const { hogares, hogarActivo, rol, elegir, recargar } = useHogar()
+  const [params] = useSearchParams()
+  const navigate = useNavigate()
+  const { pathname, hash } = useLocation()
+  const pedido = params.get("hogar")
+  const esAdmin = rol === "administrador" && hogarActivo !== null
+
+  useEffect(() => {
+    if (!pedido || !hogares.some((hogar) => hogar.id === pedido)) return
+    if (hogarActivo?.id !== pedido) elegir(pedido)
+    const siguientes = new URLSearchParams(params)
+    siguientes.delete("hogar")
+    const search = siguientes.toString()
+    navigate(
+      { pathname, search: search ? `?${search}` : "", hash: hash || "#hogar" },
+      { replace: true },
+    )
+  }, [pedido, hogares, hogarActivo, elegir, params, navigate, pathname, hash])
+
+  return (
+    <>
+      <Tarjeta id="hogar" titulo="Hogares">
+        {hogares.length === 0 || hogarActivo === null ? (
+          <Text color="fg" lineHeight="1.5">
+            No hay un hogar activo.
+          </Text>
+        ) : (
+          <Stack gap={6}>
+            <ListaPertenencia hogares={hogares} activoId={hogarActivo.id} onElegir={elegir} />
+            <Box as="hr" border="0" borderTopWidth="1px" borderColor="borde" />
+            {esAdmin ? (
+              <Stack gap={6}>
+                <FormularioEditarHogar hogar={hogarActivo} onGuardado={recargar} />
+                <Box as="hr" border="0" borderTopWidth="1px" borderColor="borde" />
+                <ListaMiembros hogarId={hogarActivo.id} />
+              </Stack>
+            ) : (
+              <VistaHogar hogar={hogarActivo} onDejado={recargar} />
+            )}
+          </Stack>
+        )}
+      </Tarjeta>
+      <FormularioNuevoHogar />
+    </>
+  )
+}
+
 export function Opciones() {
   const { email, nombre, salir, aplicarUsuario, actualizarNombre } = useSesion()
   const { hash } = useLocation()
@@ -653,9 +1212,11 @@ export function Opciones() {
           Opciones
         </Heading>
         <Text color="fg.muted" fontSize={{ base: "md", md: "lg" }} lineHeight="1.5">
-          El nombre, el email, la contraseña, la apariencia, el modelo y la sesión de esta pestaña.
+          Los hogares a los que pertenecés, el nombre, el email, la contraseña, la apariencia, el modelo y la sesión de esta pestaña.
         </Text>
       </Stack>
+
+      <BloqueHogar />
 
       <Tarjeta id="cuenta" titulo="Cuenta">
         <Stack gap={6}>

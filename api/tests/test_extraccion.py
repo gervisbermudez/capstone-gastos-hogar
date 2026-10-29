@@ -423,9 +423,14 @@ def test_pdf_con_texto_no_usa_la_transcripcion(cuentas, doble, caplog):
         assert detalle.json()["texto"] == cuerpo["texto"]
         lista = ada.get("/documentos")
         assert lista.status_code == 200
-        assert lista.json()["items"] == [
-            {"id": cuerpo["id"], "estado": "borrador", "campos": cuerpo["campos"]}
-        ]
+        esperado = {
+            "id": cuerpo["id"],
+            "estado": "borrador",
+            "campos": cuerpo["campos"],
+        }
+        if REPO_REAL:
+            esperado["autor_email"] = "ada@example.com"
+        assert lista.json()["items"] == [esperado]
         assert "texto" not in lista.json()["items"][0]
         if REPO_REAL:
             avisos = asyncio.run(REPO.listar_notificaciones(user_id=cuentas["ada"]))
@@ -564,7 +569,9 @@ def test_confirmar_indexa_y_recien_ahi_entra_al_libro(cuentas, doble, monkeypatc
     llamadas: list[dict] = []
     modulo = types.ModuleType("app.indexacion")
 
-    async def indexar_comprobante(*, user_id, documento_id, texto, categoria, periodo, proveedor):
+    async def indexar_comprobante(
+        *, user_id, documento_id, texto, categoria, periodo, proveedor, hogar_id=None
+    ):
         llamadas.append(
             {
                 "user_id": user_id,
@@ -573,6 +580,7 @@ def test_confirmar_indexa_y_recien_ahi_entra_al_libro(cuentas, doble, monkeypatc
                 "categoria": categoria,
                 "periodo": periodo,
                 "proveedor": proveedor,
+                "hogar_id": hogar_id,
             }
         )
 
@@ -603,6 +611,7 @@ def test_confirmar_indexa_y_recien_ahi_entra_al_libro(cuentas, doble, monkeypatc
     assert llamadas[0]["proveedor"] == "Edenor SA"
     assert llamadas[0]["categoria"] == "servicios"
     assert llamadas[0]["periodo"] == "2026-03"
+    assert isinstance(llamadas[0]["hogar_id"], str) and llamadas[0]["hogar_id"]
     assert "18500.50" in llamadas[0]["texto"]
     assert MARCA_VISION not in llamadas[0]["texto"]
     if REPO_REAL:
@@ -632,7 +641,9 @@ def test_indexar_que_falla_deja_el_borrador(cuentas, caplog, monkeypatch):
     caplog.set_level(logging.WARNING, logger="app.ingesta")
     modulo = types.ModuleType("app.indexacion")
 
-    async def indexar_comprobante(*, user_id, documento_id, texto, categoria, periodo, proveedor):
+    async def indexar_comprobante(
+        *, user_id, documento_id, texto, categoria, periodo, proveedor, hogar_id=None
+    ):
         raise RuntimeError("sk-secret")
 
     modulo.indexar_comprobante = indexar_comprobante
@@ -810,6 +821,13 @@ def test_eliminar_confirmado_saca_libro_archivo_e_indice(cuentas, monkeypatch, t
                 == 200
             )
             assert ada.post(f"/documentos/{anulado}/anular").status_code == 200
+            if REPO_REAL:
+                hogar_ada = asyncio.run(REPO.hogar_por_defecto(cuentas["ada"]))
+                hogar_grace = asyncio.run(REPO.hogar_por_defecto(cuentas["grace"]))
+            else:
+                hogar_ada = "hogar-ada"
+                hogar_grace = "hogar-grace"
+            assert isinstance(hogar_ada, str) and isinstance(hogar_grace, str)
             rag.indexar_sync(
                 user_id=cuentas["ada"],
                 documento_id=propio,
@@ -817,6 +835,7 @@ def test_eliminar_confirmado_saca_libro_archivo_e_indice(cuentas, monkeypatch, t
                 categoria="servicios",
                 periodo="2026-03",
                 proveedor="Edenor",
+                hogar_id=hogar_ada,
             )
             rag.indexar_sync(
                 user_id=cuentas["grace"],
@@ -825,6 +844,7 @@ def test_eliminar_confirmado_saca_libro_archivo_e_indice(cuentas, monkeypatch, t
                 categoria="servicios",
                 periodo="2026-03",
                 proveedor="Aysa",
+                hogar_id=hogar_grace,
             )
 
             assert grace.delete(f"/documentos/{propio}").status_code == 404
@@ -859,8 +879,12 @@ def test_eliminar_confirmado_saca_libro_archivo_e_indice(cuentas, monkeypatch, t
             assert gastos["cantidad"] == 1
             assert [item["id"] for item in libro(cuentas["grace"])["comprobantes"]] == [ajeno]
 
-        assert rag.buscar_sync(consulta="ajuste secreto", user_id=cuentas["ada"]) == []
-        de_grace = rag.buscar_sync(consulta="Secreto alquiler", user_id=cuentas["grace"])
+        assert rag.buscar_sync(
+            consulta="ajuste secreto", user_id=cuentas["ada"], hogar_id=hogar_ada
+        ) == []
+        de_grace = rag.buscar_sync(
+            consulta="Secreto alquiler", user_id=cuentas["grace"], hogar_id=hogar_grace
+        )
         assert [item["documento_id"] for item in de_grace] == [ajeno]
         assert borrados == [
             {

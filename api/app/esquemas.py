@@ -323,6 +323,11 @@ class DocumentoBorrador(_Salida):
     texto: str
     advertencias: list[str] = Field(default_factory=list)
     creado_en: str | None = None
+    autor_email: str | None = None
+
+    @model_serializer(mode="wrap")
+    def _ocultar_autor_vacio(self, serializer, _info):
+        return _sin_autor_vacio(serializer(self))
 
 
 class Cambio(_Salida):
@@ -348,18 +353,42 @@ class DocumentoConfirmado(_Salida):
     indexado: Indexado | None = None
     cambios: list[Cambio] = Field(default_factory=list)
     confirmado_en: str | None = None
+    autor_email: str | None = None
+
+    @model_serializer(mode="wrap")
+    def _ocultar_autor_vacio(self, serializer, _info):
+        return _sin_autor_vacio(serializer(self))
+
+
+def _sin_autor_vacio(datos: object) -> object:
+    if not isinstance(datos, dict) or datos.get("autor_email") is not None:
+        return datos
+    return {clave: valor for clave, valor in datos.items() if clave != "autor_email"}
 
 
 class DocumentoListado(_Salida):
-    """Borrador en ``GET /documentos``. No trae ``texto`` ni ``advertencias``."""
+    """Borrador en ``GET /documentos``. No trae ``texto`` ni ``advertencias``.
+
+    ``autor_email`` es de quien cargó el archivo. Lo ve cualquier miembro del hogar.
+    Vacío no se emite.
+    """
 
     id: str = Field(min_length=1)
     estado: Literal["borrador"]
     campos: CamposDocumento = Field(default_factory=CamposDocumento)
+    autor_email: str | None = None
+
+    @model_serializer(mode="wrap")
+    def _ocultar_autor_vacio(self, serializer, _info):
+        return _sin_autor_vacio(serializer(self))
 
 
 class DocumentoListadoConfirmado(_Salida):
-    """Confirmado en el listado. ``cambios`` puede ir vacía."""
+    """Confirmado en el listado. ``cambios`` puede ir vacía.
+
+    ``autor_email`` es de quien cargó el archivo. Lo ve cualquier miembro del hogar.
+    Vacío no se emite.
+    """
 
     id: str = Field(min_length=1)
     estado: Literal["confirmado"]
@@ -367,6 +396,11 @@ class DocumentoListadoConfirmado(_Salida):
     anulado: bool = False
     indexado: Indexado | None = None
     cambios: list[Cambio] = Field(default_factory=list)
+    autor_email: str | None = None
+
+    @model_serializer(mode="wrap")
+    def _ocultar_autor_vacio(self, serializer, _info):
+        return _sin_autor_vacio(serializer(self))
 
 
 DocumentoListadoItem = Annotated[
@@ -645,3 +679,92 @@ class CargaEstado(_Salida):
     fase: Literal["recibida", "extrayendo", "lista", "falla"]
     documento_id: str | None = None
     mensaje: str | None = None
+
+
+RolHogar = Literal["administrador", "asociado"]
+
+_MAX_NOMBRE_HOGAR = 80
+_MAX_DIRECCION_HOGAR = 160
+
+
+def _nombre_hogar(valor: str) -> str:
+    texto = valor.strip()
+    if not texto:
+        raise ValueError("Falta el nombre")
+    if len(texto) > _MAX_NOMBRE_HOGAR:
+        raise ValueError("El nombre supera los 80 caracteres")
+    return texto
+
+
+def _direccion_hogar(valor: str | None) -> str | None:
+    if valor is None:
+        return None
+    texto = valor.strip()
+    if not texto:
+        return None
+    if len(texto) > _MAX_DIRECCION_HOGAR:
+        raise ValueError("La dirección supera los 160 caracteres")
+    return texto
+
+
+class HogarDatos(_Entrada):
+    """Body de ``POST /hogares`` y ``PATCH /hogares/{id}``.
+
+    ``nombre`` se recorta, no puede quedar vacío y tiene como máximo 80
+    caracteres. ``direccion`` vacía o ausente queda en null, con máximo 160.
+    Un ``PATCH`` sin dirección la borra.
+    """
+
+    nombre: str
+    direccion: str | None = None
+
+    @field_validator("nombre")
+    @classmethod
+    def nombre_presente(cls, valor: str) -> str:
+        return _nombre_hogar(valor)
+
+    @field_validator("direccion")
+    @classmethod
+    def direccion_opcional(cls, valor: str | None) -> str | None:
+        return _direccion_hogar(valor)
+
+
+class HogarItem(_Salida):
+    """Un hogar del token. ``direccion`` null se emite. ``rol`` es el del token."""
+
+    id: str = Field(min_length=1)
+    nombre: str
+    direccion: str | None = None
+    rol: RolHogar
+
+
+class ListaHogares(_Salida):
+    """``GET /hogares`` → ``200``."""
+
+    items: list[HogarItem]
+
+
+class AltaMiembro(_Entrada):
+    """Body de ``POST /hogares/{id}/miembros``. El rol nuevo es asociado."""
+
+    email: str
+
+    @field_validator("email")
+    @classmethod
+    def email_presente(cls, valor: str) -> str:
+        return _email_presente(valor)
+
+
+class MiembroItem(_Salida):
+    """Una persona del hogar. ``nombre`` null se emite."""
+
+    user_id: str = Field(min_length=1)
+    email: str
+    nombre: str | None = None
+    rol: RolHogar
+
+
+class ListaMiembros(_Salida):
+    """``GET /hogares/{id}/miembros`` → ``200``."""
+
+    items: list[MiembroItem]

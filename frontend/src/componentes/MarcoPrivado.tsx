@@ -2,12 +2,17 @@ import { Box, Button, CloseButton, Drawer, Flex, Portal, Switch, useMediaQuery }
 import { useEffect, useState } from "react"
 import { Navigate, Outlet, useLocation, useNavigate } from "react-router"
 import { ProveedorCanal } from "../canal"
+import { useHogar } from "../hogar"
 import { useSesion } from "../sesion"
 import { useTema } from "../temaModo"
 import { DURACION, EASING, entrada } from "../movimiento"
 import { BarraLateral, type Seccion } from "./BarraLateral"
 import { Campana } from "./Campana"
 import { EsqueletoMarco } from "./esqueleto"
+
+function esRutaDeAdministrador(pathname: string): boolean {
+  return pathname === "/categorias" || pathname === "/chat" || pathname.startsWith("/chat/")
+}
 
 function seccionActiva(pathname: string): Seccion | null {
   if (pathname === "/") return "tablero"
@@ -21,6 +26,7 @@ function seccionActiva(pathname: string): Seccion | null {
 
 export function MarcoPrivado() {
   const { token, listo, email, nombre, salir } = useSesion()
+  const { listo: hogarListo, rol, hogarActivo } = useHogar()
   const { oscuro, alternar } = useTema()
   const navigate = useNavigate()
   const { pathname } = useLocation()
@@ -37,6 +43,10 @@ export function MarcoPrivado() {
 
   if (!listo) return <EsqueletoMarco pathname={pathname} />
   if (!token) return <Navigate to="/ingreso" replace />
+  if (!hogarListo) return <EsqueletoMarco pathname={pathname} />
+
+  const asociadoEnRutaAjena = rol === "asociado" && esRutaDeAdministrador(pathname)
+  const clavePantalla = `${pathname}:${hogarActivo?.id ?? ""}`
 
   function alSalir() {
     salir()
@@ -135,7 +145,7 @@ export function MarcoPrivado() {
                 </Flex>
               </Flex>
               <Box
-                key={pathname}
+                key={clavePantalla}
                 as="main"
                 flex="1"
                 minH={0}
@@ -147,7 +157,7 @@ export function MarcoPrivado() {
                 py={pathname === "/chat" ? 0 : { base: 4, md: 6 }}
                 css={entrada}
               >
-                <Outlet />
+                {asociadoEnRutaAjena ? <Navigate to="/registros" replace /> : <Outlet />}
               </Box>
             </Flex>
           </ProveedorCanal>

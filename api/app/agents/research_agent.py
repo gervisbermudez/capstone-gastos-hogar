@@ -12,14 +12,14 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from ..periodo import PERIODO as _PERIODO
 from ..rag import buscar
 from ..state import AgentState, contexto_turno
-from .bucle import correr_async, usuario_del_turno
+from .bucle import correr_async, hogar_del_turno, usuario_del_turno
 from .mensajes import lineas_tool, ultima_respuesta
 
 _reemplazo = None
 
 _INSTRUCCION = (
     "Buscá en el texto de los comprobantes con buscar_comprobantes. "
-    "No calcules totales y no pases user_id: el sistema ya filtra por la persona. "
+    "No calcules totales y no pases user_id ni hogar_id: el sistema ya filtra por el hogar. "
     "Alquiler es categoria alquiler. Expensas es expensas. "
     "Luz, gas, agua, internet o teléfono es categoria servicios. "
     "Si la pregunta nombra un período, pasalo como YYYY-MM. "
@@ -82,19 +82,25 @@ async def buscar_comprobantes(
     periodo: str | None = None,
     proveedor: str | None = None,
 ) -> str:
-    """Busca en el texto de los comprobantes de esta persona (factura, contrato, cláusula).
-    No calcula totales. El usuario ya está fijado: no lo pases."""
+    """Busca en el texto de los comprobantes de este hogar (factura, contrato, cláusula).
+    No calcula totales. El usuario y el hogar ya están fijados: no los pases."""
     user_id = usuario_del_turno.get()
-    if not user_id:
+    hogar_id = hogar_del_turno.get()
+    if not user_id or not hogar_id:
         return "No se encontró información relevante en los comprobantes."
     encontrados = await buscar(
         consulta=consulta,
         user_id=user_id,
+        hogar_id=hogar_id,
         categoria=categoria,
         periodo=periodo,
         proveedor=proveedor,
     )
-    propios = [fila for fila in encontrados if fila.get("user_id") == user_id]
+    propios = [
+        fila
+        for fila in encontrados
+        if fila.get("hogar_id") == hogar_id
+    ]
     resultado = ResultadoBusqueda(
         fragmentos=[
             Fragmento(
@@ -124,23 +130,25 @@ def _agente_investigador():
             "Sos el investigador de comprobantes del hogar. Tu única función "
             "es buscar en el texto indexado con buscar_comprobantes. "
             "NO calcules totales, NO consultes el libro de montos y NO inventes "
-            "cláusulas. El user_id no es un argumento. Cerrá con el fragmento "
+            "cláusulas. El user_id y el hogar_id no son argumentos. Cerrá con el fragmento "
             "y la marca [comprobante] que devuelve la herramienta."
         ),
     )
 
 
 def nodo_investigador(state: AgentState) -> dict:
-    """Busca el texto del comprobante. El ``user_id`` sale del estado, no del modelo."""
+    """Busca el texto del comprobante. El hogar sale del estado, no del modelo."""
 
     async def _correr() -> dict:
         token = usuario_del_turno.set(state.get("user_id") or "")
+        token_hogar = hogar_del_turno.set(str(state.get("hogar_id") or ""))
         try:
             tarea = contexto_turno(state, _INSTRUCCION)
             return await _agente_investigador().ainvoke(
                 {"messages": [HumanMessage(content=tarea)]}
             )
         finally:
+            hogar_del_turno.reset(token_hogar)
             usuario_del_turno.reset(token)
 
     resultado = correr_async(_correr())

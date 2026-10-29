@@ -5,7 +5,8 @@ from __future__ import annotations
 import uuid
 
 from .. import db
-from .comun import EmailDuplicado, _rollback
+from .comun import EmailDuplicado, HogarOcupado, _rollback
+from .hogares import _NOMBRE_INICIAL, _insertar_hogar
 
 def _email(email: str) -> str:
     texto = email.strip().lower()
@@ -15,20 +16,33 @@ def _email(email: str) -> str:
 
 
 async def crear_usuario(email: str, password_hash: str) -> str:
+    """Crea la cuenta y, en la misma transacción, el hogar «Mi hogar»."""
     correo = _email(email)
     if not isinstance(password_hash, str) or not password_hash:
         raise ValueError("Falta el hash")
     user_id = str(uuid.uuid4())
     async with db.conectar() as conn:
+        await conn.execute("BEGIN IMMEDIATE")
         try:
-            await conn.execute(
-                "INSERT INTO usuarios (user_id, email, password_hash) VALUES (?, ?, ?)",
-                (user_id, correo, password_hash),
+            try:
+                await conn.execute(
+                    "INSERT INTO usuarios (user_id, email, password_hash) VALUES (?, ?, ?)",
+                    (user_id, correo, password_hash),
+                )
+            except Exception as exc:
+                if exc.__class__.__name__ != "IntegrityError":
+                    raise
+                raise EmailDuplicado(correo) from exc
+            await _insertar_hogar(
+                conn,
+                user_id=user_id,
+                nombre=_NOMBRE_INICIAL,
+                direccion=None,
             )
-        except Exception as exc:
-            if exc.__class__.__name__ != "IntegrityError":
-                raise
-            raise EmailDuplicado(correo) from exc
+            await conn.commit()
+        except Exception:
+            await _rollback(conn)
+            raise
     return user_id
 
 
@@ -119,10 +133,36 @@ async def actualizar_password_hash(*, user_id: str, password_hash: str) -> None:
 
 
 async def eliminar_usuario(*, user_id: str) -> None:
-    """Borra la cuenta y lo que apunta a ella. Una sola transacción."""
+    """Borra la cuenta y lo que apunta a ella. Una sola transacción.
+
+    Si administra un hogar con otros miembros, no borra nada.
+    """
     async with db.conectar() as conn:
         await conn.execute("BEGIN IMMEDIATE")
         try:
+            cursor = await conn.execute(
+                """
+                SELECT 1
+                FROM membresias AS propia
+                WHERE propia.user_id = ?
+                  AND propia.rol = 'administrador'
+                  AND EXISTS (
+                      SELECT 1
+                      FROM membresias AS otra
+                      WHERE otra.hogar_id = propia.hogar_id
+                        AND otra.user_id != propia.user_id
+                  )
+                """,
+                (user_id,),
+            )
+            if await cursor.fetchone() is not None:
+                await _rollback(conn)
+                raise HogarOcupado(user_id)
+            cursor = await conn.execute(
+                "SELECT hogar_id FROM membresias WHERE user_id = ?",
+                (user_id,),
+            )
+            hogares = [fila["hogar_id"] for fila in await cursor.fetchall()]
             await conn.execute("DELETE FROM mensajes WHERE user_id = ?", (user_id,))
             await conn.execute("DELETE FROM hilos_estado WHERE user_id = ?", (user_id,))
             await conn.execute("DELETE FROM borradores WHERE user_id = ?", (user_id,))
@@ -131,8 +171,25 @@ async def eliminar_usuario(*, user_id: str) -> None:
             # falla por la foreign key.
             await conn.execute("DELETE FROM categorias WHERE user_id = ?", (user_id,))
             await conn.execute("DELETE FROM notificaciones WHERE user_id = ?", (user_id,))
+            await conn.execute("DELETE FROM membresias WHERE user_id = ?", (user_id,))
+            if hogares:
+                marcas = ", ".join("?" for _ in hogares)
+                await conn.execute(
+                    f"""
+                    DELETE FROM hogares
+                    WHERE hogar_id IN ({marcas})
+                      AND NOT EXISTS (
+                          SELECT 1
+                          FROM membresias AS m
+                          WHERE m.hogar_id = hogares.hogar_id
+                      )
+                    """,
+                    hogares,
+                )
             await conn.execute("DELETE FROM usuarios WHERE user_id = ?", (user_id,))
             await conn.commit()
+        except HogarOcupado:
+            raise
         except Exception:
             await _rollback(conn)
             raise

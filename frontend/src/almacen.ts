@@ -1,4 +1,5 @@
 const CLAVE_TOKEN = "gastos.access_token"
+const CLAVE_HOGAR = "gastos.hogar_id"
 const CLAVE_HILO = "gastos.thread_id"
 const CLAVE_JOB = "gastos.job_pendiente"
 const CLAVE_TRANSCRIPTOS = "gastos.transcriptos"
@@ -30,6 +31,21 @@ export function leerToken(): string | null {
 
 export function guardarToken(token: string): void {
   sessionStorage.setItem(CLAVE_TOKEN, token)
+}
+
+export function leerHogar(): string | null {
+  const valor = sessionStorage.getItem(CLAVE_HOGAR)
+  if (!valor?.trim()) return null
+  return valor
+}
+
+export function guardarHogar(hogarId: string): void {
+  if (!hogarId.trim()) return
+  sessionStorage.setItem(CLAVE_HOGAR, hogarId)
+}
+
+export function olvidarHogar(): void {
+  sessionStorage.removeItem(CLAVE_HOGAR)
 }
 
 export function leerHilo(): string | null {
@@ -134,6 +150,7 @@ export function olvidarContextoChat(): void {
 
 export function olvidarSesion(): void {
   sessionStorage.removeItem(CLAVE_TOKEN)
+  sessionStorage.removeItem(CLAVE_HOGAR)
   sessionStorage.removeItem(CLAVE_HILO)
   sessionStorage.removeItem(CLAVE_JOB)
   sessionStorage.removeItem(CLAVE_TRANSCRIPTOS)

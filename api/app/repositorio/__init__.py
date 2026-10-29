@@ -10,7 +10,7 @@ from .categorias import (
     crear_categoria,
     listar_categorias,
 )
-from .comun import EmailDuplicado, NombreDuplicado
+from .comun import EmailDuplicado, HogarOcupado, NombreDuplicado
 from .documentos import (
     anular_comprobante,
     asentar_pago,
@@ -37,6 +37,22 @@ from .hilos import (
     listar_hilos_de_documento,
     obtener_hilo,
 )
+from .hogares import (
+    AdministradorNoRemovible,
+    EmailInexistente,
+    HogarNoEncontrado,
+    MiembroDuplicado,
+    actualizar_hogar,
+    administrador_id,
+    agregar_miembro,
+    crear_hogar,
+    dejar_hogar,
+    hogar_por_defecto,
+    listar_hogares,
+    listar_miembros,
+    membresia,
+    quitar_miembro,
+)
 from .notificaciones import (
     descartar_notificaciones_leidas,
     insertar_notificacion,
@@ -55,13 +71,21 @@ from .usuarios import (
 )
 
 __all__ = [
+    "AdministradorNoRemovible",
     "EmailDuplicado",
+    "EmailInexistente",
+    "HogarNoEncontrado",
+    "HogarOcupado",
+    "MiembroDuplicado",
     "NombreDuplicado",
     "_titulo",
     "actualizar_categoria",
     "actualizar_email",
+    "actualizar_hogar",
     "actualizar_nombre",
     "actualizar_password_hash",
+    "administrador_id",
+    "agregar_miembro",
     "anotar_mensaje",
     "anular_comprobante",
     "archivar_hilo",
@@ -73,7 +97,9 @@ __all__ = [
     "consultar_gastos",
     "corregir_comprobante",
     "crear_categoria",
+    "crear_hogar",
     "crear_usuario",
+    "dejar_hogar",
     "desarchivar_hilo",
     "descartar_borrador",
     "descartar_notificaciones_leidas",
@@ -83,16 +109,21 @@ __all__ = [
     "exportar_csv",
     "guardar_borrador",
     "hilo_esta_eliminado",
+    "hogar_por_defecto",
     "insertar_notificacion",
     "listar_categorias",
     "listar_documentos",
     "listar_hilos",
     "listar_hilos_de_documento",
+    "listar_hogares",
+    "listar_miembros",
     "listar_notificaciones",
     "marcar_indexado",
     "marcar_notificacion_leida",
     "marcar_notificaciones_leidas",
+    "membresia",
     "obtener_documento",
     "obtener_hilo",
+    "quitar_miembro",
     "resumen",
 ]

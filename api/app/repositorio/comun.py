@@ -17,6 +17,10 @@ class NombreDuplicado(Exception):
     """El nombre ya existe para esa persona. La ruta lo traduce a 409."""
 
 
+class HogarOcupado(Exception):
+    """Administra un hogar que tiene otros miembros. La baja responde 409."""
+
+
 def _ahora() -> str:
     return datetime.now(timezone.utc).isoformat()
 

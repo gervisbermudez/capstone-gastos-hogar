@@ -62,6 +62,7 @@ export type DocumentoBorrador = {
   texto: string
   advertencias: string[]
   creado_en?: string
+  autor_email?: string
 }
 
 export type Indexado = "ok" | "error" | "omitido"
@@ -80,6 +81,7 @@ export type DocumentoConfirmado = {
   indexado: Indexado | null
   cambios: Cambio[]
   confirmado_en?: string
+  autor_email?: string
 }
 
 export type DocumentoDetalle = DocumentoBorrador | DocumentoConfirmado
@@ -91,6 +93,31 @@ export type DocumentoListado = {
   anulado?: boolean
   indexado?: Indexado | null
   cambios?: Cambio[]
+  autor_email?: string
+}
+
+export type RolHogar = "administrador" | "asociado"
+
+export type Hogar = {
+  id: string
+  nombre: string
+  direccion: string | null
+  rol: RolHogar
+}
+
+export type ListaHogares = {
+  items: Hogar[]
+}
+
+export type MiembroHogar = {
+  user_id: string
+  email: string
+  nombre: string | null
+  rol: RolHogar
+}
+
+export type ListaMiembros = {
+  items: MiembroHogar[]
 }
 
 export type ListaDocumentos = {

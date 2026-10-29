@@ -19,7 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from ..periodo import PERIODO as _PERIODO
 from ..state import AgentState, contexto_turno, pregunta_actual
 from ..supervisor import es_comparacion
-from .bucle import correr_async, usuario_del_turno
+from .bucle import correr_async, hogar_del_turno, usuario_del_turno
 from .libro import consultar_gastos_usuario, formatear_gastos
 from .mensajes import lineas_tool, ultima_respuesta
 
@@ -108,15 +108,16 @@ async def consultar_gastos(
     periodo_hasta: str | None = None,
     proveedor: str | None = None,
 ) -> str:
-    """Suma y promedio de los comprobantes confirmados de esta persona.
+    """Suma y promedio de los comprobantes confirmados de este hogar.
     Sirve para cuánto pagó y para comparar períodos. No lee el texto de la factura.
-    El usuario ya está fijado: no lo pases."""
+    El usuario y el hogar ya están fijados: no los pases."""
     user_id = usuario_del_turno.get()
     if not user_id:
         return "Error al consultar el libro de gastos."
     try:
         datos = await consultar_gastos_usuario(
             user_id=user_id,
+            hogar_id=hogar_del_turno.get(),
             categoria=categoria,
             periodo_desde=periodo_desde,
             periodo_hasta=periodo_hasta,
@@ -140,7 +141,7 @@ def _instruccion() -> str:
     return (
         f"Año si la pregunta no lo trae: {anio}. Meses: {_MESES}. "
         "Consultá el libro con consultar_gastos. No busques el texto de la factura "
-        "y no pases user_id. Categorías: servicios, expensas, alquiler. "
+        "y no pases user_id ni hogar_id. Categorías: servicios, expensas, alquiler. "
         "Luz, gas, agua, internet y teléfono son servicios: no uses proveedor 'luz'. "
         "Expensas es expensas. Alquiler es alquiler. "
         "Un mes se consulta con periodo_desde y periodo_hasta en ese YYYY-MM. "
@@ -168,7 +169,7 @@ def _agente_analista():
             "Sos el analista de gastos del hogar. Consultás el libro de montos "
             "con consultar_gastos y, si hay que restar o sumar, la calculadora. "
             "NO leés el texto de las facturas y NO inventás cifras que la tool "
-            "no haya devuelto. El user_id no es un argumento. "
+            "no haya devuelto. El user_id y el hogar_id no son argumentos. "
             "La respuesta tiene que incluir la línea Total: y, si calculaste, "
             "la línea Resultado:."
         ),
@@ -176,14 +177,16 @@ def _agente_analista():
 
 
 def nodo_analista(state: AgentState) -> dict:
-    """Consulta el libro de esta persona y, si hace falta, resta con la calculadora."""
+    """Consulta el libro de este hogar y, si hace falta, resta con la calculadora."""
 
     async def _correr() -> dict:
         token = usuario_del_turno.set(state.get("user_id") or "")
+        token_hogar = hogar_del_turno.set(str(state.get("hogar_id") or ""))
         try:
             tarea = contexto_turno(state, _instruccion())
             return await _agente_analista().ainvoke({"messages": [HumanMessage(content=tarea)]})
         finally:
+            hogar_del_turno.reset(token_hogar)
             usuario_del_turno.reset(token)
 
     resultado = correr_async(_correr())

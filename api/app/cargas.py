@@ -109,11 +109,14 @@ async def _avisar(redis, job: dict[str, Any]) -> None:
         logger.warning("No se pudo avisar la carga %s", job.get("job_id"))
 
 
-async def crear_carga(redis, job_id: str, user_id: str) -> dict[str, Any]:
+async def crear_carga(
+    redis, job_id: str, user_id: str, hogar_id: str | None = None
+) -> dict[str, Any]:
     """Persiste ``recibida`` antes de encolar. Un poll inmediato no da 404."""
     job = {
         "job_id": job_id,
         "user_id": user_id,
+        "hogar_id": hogar_id,
         "fase": RECIBIDA,
         "documento_id": None,
         "mensaje": None,
@@ -157,7 +160,12 @@ async def procesar_carga(redis, job_id: str) -> None:
         if not datos:
             await _fallar(redis, job, "Falta el archivo.", "sin archivo")
             return
-        cuerpo = await recibir(datos, user_id=user_id)
+        hogar = job.get("hogar_id")
+        cuerpo = await recibir(
+            datos,
+            user_id=user_id,
+            hogar_id=hogar if isinstance(hogar, str) and hogar else None,
+        )
         documento_id = str(cuerpo["id"])
         await borrar_pendiente(user_id, job_id)
     except ArchivoRechazado as exc:

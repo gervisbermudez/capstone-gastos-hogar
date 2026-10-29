@@ -1,7 +1,7 @@
 """Caché de ``GET /resumen``. Un fallo de Redis no cambia el status ni el cuerpo.
 
-La clave lleva el ``user_id``. Confirmar, anular, corregir y asentar un pago
-borran las claves de esa persona.
+La clave lleva el ``hogar_id``. Confirmar, anular, corregir, borrar y asentar
+un pago borran las claves de ese hogar.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 TTL_SEGUNDOS = 60
 PREFIJO = "gastos:resumen:"
 
-_USUARIO = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
+_IDENTIFICADOR = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
 
 _cliente = None
 
@@ -28,16 +28,16 @@ def publicar_redis(redis) -> None:
     _cliente = redis
 
 
-def clave(user_id: str, desde: str, hasta: str) -> str | None:
-    if _USUARIO.fullmatch(user_id) is None:
+def clave(hogar_id: str, desde: str, hasta: str) -> str | None:
+    if _IDENTIFICADOR.fullmatch(hogar_id) is None:
         return None
     if _PERIODO.fullmatch(desde) is None or _PERIODO.fullmatch(hasta) is None:
         return None
-    return f"{PREFIJO}{user_id}:{desde}:{hasta}"
+    return f"{PREFIJO}{hogar_id}:{desde}:{hasta}"
 
 
-async def leer(redis, user_id: str, desde: str, hasta: str) -> dict | None:
-    nombre = clave(user_id, desde, hasta)
+async def leer(redis, hogar_id: str, desde: str, hasta: str) -> dict | None:
+    nombre = clave(hogar_id, desde, hasta)
     if redis is None or nombre is None:
         return None
     try:
@@ -58,8 +58,8 @@ async def leer(redis, user_id: str, desde: str, hasta: str) -> dict | None:
     return datos
 
 
-async def guardar(redis, user_id: str, desde: str, hasta: str, datos: dict) -> None:
-    nombre = clave(user_id, desde, hasta)
+async def guardar(redis, hogar_id: str, desde: str, hasta: str, datos: dict) -> None:
+    nombre = clave(hogar_id, desde, hasta)
     if redis is None or nombre is None:
         return
     try:
@@ -68,10 +68,10 @@ async def guardar(redis, user_id: str, desde: str, hasta: str, datos: dict) -> N
         logger.warning("No se pudo guardar la caché del resumen: %s", type(exc).__name__)
 
 
-async def invalidar(redis, user_id: str) -> None:
-    if redis is None or _USUARIO.fullmatch(user_id or "") is None:
+async def invalidar(redis, hogar_id: str) -> None:
+    if redis is None or _IDENTIFICADOR.fullmatch(hogar_id or "") is None:
         return
-    patron = f"{PREFIJO}{user_id}:*"
+    patron = f"{PREFIJO}{hogar_id}:*"
     try:
         claves: list[str] = []
         async for item in redis.scan_iter(match=patron):
@@ -84,5 +84,5 @@ async def invalidar(redis, user_id: str) -> None:
         logger.warning("No se pudo invalidar la caché del resumen: %s", type(exc).__name__)
 
 
-async def invalidar_publicado(user_id: str) -> None:
-    await invalidar(_cliente, user_id)
+async def invalidar_publicado(hogar_id: str) -> None:
+    await invalidar(_cliente, hogar_id)

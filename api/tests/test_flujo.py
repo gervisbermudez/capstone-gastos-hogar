@@ -138,10 +138,11 @@ def test_critica_rechazada_no_avisa(tmp_path: Path) -> None:
 def test_aprobar_un_pago_guarda_borrador(monkeypatch) -> None:
     llamadas: list[dict] = []
 
-    async def guardar_borrador(*, user_id, texto, campos, advertencias) -> str:
+    async def guardar_borrador(*, user_id, texto, campos, advertencias, hogar_id="") -> str:
         llamadas.append(
             {
                 "user_id": user_id,
+                "hogar_id": hogar_id,
                 "texto": texto,
                 "campos": campos,
                 "advertencias": advertencias,
@@ -158,10 +159,12 @@ def test_aprobar_un_pago_guarda_borrador(monkeypatch) -> None:
         "messages": [HumanMessage(content="Asentá el pago de expensas de 2026-03 por 18500.50")],
         "aprobado": True,
         "user_id": "usuario-1",
+        "hogar_id": "hogar-1",
     }
     accion = nodo_ejecutar(estado)["accion"]
     assert accion == "Borrador: doc-1"
     assert llamadas[0]["user_id"] == "usuario-1"
+    assert llamadas[0]["hogar_id"] == "hogar-1"
     assert llamadas[0]["campos"]["categoria"] == "expensas"
     assert llamadas[0]["campos"]["periodo"] == "2026-03"
     assert llamadas[0]["campos"]["monto"] == "18500.50"

@@ -128,10 +128,10 @@ function coincide(item: DocumentoListado, filtros: FiltrosRegistros): boolean {
   )
 }
 
-export function filtrarRegistros(
-  items: readonly DocumentoListado[],
+export function filtrarRegistros<T extends DocumentoListado>(
+  items: readonly T[],
   filtros: FiltrosRegistros,
-): DocumentoListado[] {
+): T[] {
   if (rangoInvalido(filtros) !== null) return []
   return items.filter((item) => coincide(item, filtros))
 }
