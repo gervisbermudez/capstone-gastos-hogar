@@ -210,13 +210,13 @@ def test_texto_de_pausa_separa_borrador_y_registro() -> None:
         }
     )
     assert borrador.splitlines() == [
-        "Acción: se va a crear un borrador para que lo revises antes de entrar al libro.",
+        "Acción: se va a crear un borrador para que lo revises antes de sumarlo a tus gastos.",
         "Motivo: quiere un pago",
         "Pedido: Asentá el pago",
-        "Datos: categoria=expensas periodo=2026-03 monto=18500.50",
+        "Datos: Categoría expensas, período 2026-03, monto 18500.50",
     ]
     registro = texto_de_pausa({"efecto": "registro", "motivo": "efecto", "pedido": "avisá"})
-    assert registro.splitlines()[0] == "Acción: queda registrada. No entra al libro."
+    assert registro.splitlines()[0] == "Acción: queda registrada. No se suma a tus gastos."
     assert not any(linea.startswith("Datos:") for linea in registro.splitlines())
     incompleto = texto_de_pausa(
         {

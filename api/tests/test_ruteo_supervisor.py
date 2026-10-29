@@ -197,6 +197,35 @@ def test_clasificacion() -> None:
     )
 
 
+def test_la_cita_no_cambia_la_clase() -> None:
+    cita = (
+        "[comprobante 041dc593-9b56-4b6e-bb9c-6e39b2bbb48f | Pago Fácil | servicios | 2024-01]"
+    )
+    assert clasificar_pregunta(f"{cita}\n{PREGUNTA_TEXTO}") == "texto"
+    assert clasificar_pregunta(f"{cita}\n{PREGUNTA_MONTOS}") == "montos"
+    assert clasificar_pregunta(f"{cita}\n{PREGUNTA_LUZ}") == "montos"
+    assert es_comparacion(f"{cita}\n{PREGUNTA_LUZ}") is True
+    assert es_comparacion(f"{cita}\n{PREGUNTA_MONTOS}") is False
+    cita_contra = (
+        "[comprobante 041dc593-9b56-4b6e-bb9c-6e39b2bbb48f | contra reloj | expensas | 2024-01]"
+    )
+    assert es_comparacion(f"{cita_contra}\n{PREGUNTA_MONTOS}") is False
+    assert es_critica_texto(f"{cita}\n{PREGUNTA_TEXTO}")[0] is False
+    cita_pago = (
+        "[comprobante 041dc593-9b56-4b6e-bb9c-6e39b2bbb48f | pago de 5000 USD | servicios | 2024-01]"
+    )
+    assert es_critica_texto(f"{cita_pago}\n{PREGUNTA_TEXTO}")[0] is False
+    from app.hitl import _datos_pago
+    from app.repositorio import _titulo
+
+    datos = _datos_pago(f"{cita}\nAsentá el pago de las expensas de marzo por 1200.00")
+    assert datos is not None
+    assert datos["categoria"] == "expensas"
+    assert datos["periodo"] == f"{datetime.now().year}-03"
+    assert datos["monto"] == "1200.00"
+    assert _titulo(f"{cita}\n{PREGUNTA_TEXTO}") == PREGUNTA_TEXTO
+
+
 def test_la_rubrica_corrige_al_modelo() -> None:
     texto = _estado(PREGUNTA_TEXTO)
     assert aplicar_decision(texto, "analista", "me equivoqué")[0] == "investigador"
@@ -338,6 +367,7 @@ def test_main_alinea_el_contrato() -> None:
     assert "TareaCreada" in texto
     assert "TareaEstado" in texto
     assert "Aprobacion" in texto
+    assert "TareaReanudada" in texto
     assert "usuario_actual" in texto
     assert texto.count("status_code=202") >= 2
     assert '_montar_router(".rutas_auth")' in texto

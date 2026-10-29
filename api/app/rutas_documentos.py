@@ -9,6 +9,7 @@ from fastapi.responses import Response
 from starlette.datastructures import UploadFile
 
 from .auth import usuario_actual
+from .cache_resumen import invalidar
 from .cupo import exigir_cupo
 from .esquemas import (
     CAMPO_ARCHIVO,
@@ -71,6 +72,10 @@ def _user_id(usuario: dict) -> str:
     return usuario["user_id"]
 
 
+async def _olvidar_resumen(request: Request, user_id: str) -> None:
+    await invalidar(getattr(request.app.state, "redis", None), user_id)
+
+
 @router.post("/documentos", status_code=201, response_model=DocumentoBorrador)
 async def crear_documento(
     request: Request,
@@ -116,6 +121,7 @@ async def ver_documento(
 async def confirmar_documento_http(
     id: str,
     factura: Factura,
+    request: Request,
     usuario: dict = Depends(usuario_actual),
 ) -> DocumentoConfirmado:
     try:
@@ -126,6 +132,7 @@ async def confirmar_documento_http(
         )
     except ArchivoRechazado as exc:
         raise HTTPException(status_code=exc.status, detail=exc.detail) from None
+    await _olvidar_resumen(request, _user_id(usuario))
     return DocumentoConfirmado.model_validate(cuerpo)
 
 
@@ -156,12 +163,14 @@ async def descartar_documento(
 @router.post("/documentos/{id}/anular", response_model=DocumentoConfirmado)
 async def anular_documento(
     id: str,
+    request: Request,
     usuario: dict = Depends(usuario_actual),
 ) -> DocumentoConfirmado:
     try:
         cuerpo = await anular(user_id=_user_id(usuario), documento_id=id)
     except ArchivoRechazado as exc:
         raise HTTPException(status_code=exc.status, detail=exc.detail) from None
+    await _olvidar_resumen(request, _user_id(usuario))
     return DocumentoConfirmado.model_validate(cuerpo)
 
 
@@ -169,6 +178,7 @@ async def anular_documento(
 async def corregir_documento(
     id: str,
     factura: Factura,
+    request: Request,
     usuario: dict = Depends(usuario_actual),
 ) -> DocumentoConfirmado:
     try:
@@ -179,6 +189,7 @@ async def corregir_documento(
         )
     except ArchivoRechazado as exc:
         raise HTTPException(status_code=exc.status, detail=exc.detail) from None
+    await _olvidar_resumen(request, _user_id(usuario))
     return DocumentoConfirmado.model_validate(cuerpo)
 
 

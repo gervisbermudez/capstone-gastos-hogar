@@ -3,13 +3,18 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import ValidationError
 
 from . import auth, repositorio
 from .auth import usuario_actual
+from .cache_resumen import guardar, leer
 from .esquemas import Credenciales, RangoResumen, Resumen, Token, UsuarioActual
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -49,12 +54,19 @@ async def me(usuario: Annotated[dict, Depends(usuario_actual)]) -> UsuarioActual
 
 @router.get("/resumen", response_model=Resumen)
 async def ver_resumen(
+    request: Request,
     rango: Annotated[RangoResumen, Query()],
     usuario: Annotated[dict, Depends(usuario_actual)],
 ) -> Resumen:
-    datos = await repositorio.resumen(
-        user_id=usuario["user_id"],
-        desde=rango.desde,
-        hasta=rango.hasta,
-    )
-    return Resumen.model_validate(datos)
+    user_id = usuario["user_id"]
+    redis = getattr(request.app.state, "redis", None)
+    cacheado = await leer(redis, user_id, rango.desde, rango.hasta)
+    if cacheado is not None:
+        try:
+            return Resumen.model_validate(cacheado)
+        except ValidationError:
+            logger.warning("La caché del resumen no tenía la forma del contrato.")
+    datos = await repositorio.resumen(user_id=user_id, desde=rango.desde, hasta=rango.hasta)
+    modelo = Resumen.model_validate(datos)
+    await guardar(redis, user_id, rango.desde, rango.hasta, modelo.model_dump(mode="json"))
+    return modelo

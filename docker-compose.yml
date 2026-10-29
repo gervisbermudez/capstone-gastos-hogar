@@ -5,8 +5,13 @@
 services:
   redis:
     image: redis:8
+    # AOF en /data, el dir de la imagen. El volumen nombrado sobrevive a
+    # `docker compose down` sin -v; el anónimo de la imagen no.
+    command: ["redis-server", "--appendonly", "yes"]
     ports:
       - "${CAPSTONE_REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -34,6 +39,9 @@ services:
       PHOENIX_PROJECT: gastos-hogar
       FRONTEND_ORIGIN: http://localhost:5173
       SQLITE_PATH: /app/data/gastos.db
+    extra_hosts:
+      # LM Studio escucha en el host. 127.0.0.1 dentro del contenedor no es esa máquina.
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./api/data:/app/data
     depends_on:
@@ -64,3 +72,4 @@ services:
 
 volumes:
   frontend_node_modules:
+  redis_data:

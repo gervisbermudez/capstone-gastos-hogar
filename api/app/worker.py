@@ -6,7 +6,10 @@ lifespan es RedisSaver, síncrono, y ``ainvoke`` no puede usarlo. Las
 llamadas al modelo, adentro del grafo, sí son ``ainvoke``.
 
 Si el grafo se pausa, el estado queda AWAITING_APPROVAL. Si revienta,
-queda FAILED: el cliente no se queda en un poll eterno.
+queda FAILED: el cliente no se queda esperando para siempre.
+
+Cada guardado avisa por Redis al canal del job. El chat escucha ese
+canal por un WebSocket, en vez de preguntar el estado cada segundo.
 """
 
 from __future__ import annotations
@@ -17,6 +20,7 @@ import logging
 import os
 import re
 import uuid
+from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 from typing import Any
 
@@ -29,8 +33,11 @@ logger = logging.getLogger(__name__)
 
 QUEUE_KEY = "gastos:jobs:queue"
 DATA_PREFIX = "gastos:jobs:data:"
+EVENT_PREFIX = "gastos:jobs:events:"
 RESUME_PREFIX = "gastos:jobs:resume-once:"
 THREAD_PREFIX = "gastos:threads:"
+# Si el aviso se pierde, el stream relee Redis al cumplirse esta espera.
+ESPERA_AVISO = 5.0
 
 PENDING = "PENDING"
 RUNNING = "RUNNING"
@@ -55,6 +62,10 @@ def ahora() -> str:
 
 def data_key(job_id: str) -> str:
     return f"{DATA_PREFIX}{job_id}"
+
+
+def event_channel(job_id: str) -> str:
+    return f"{EVENT_PREFIX}{job_id}"
 
 
 def resume_key(job_id: str) -> str:
@@ -82,6 +93,11 @@ def _candado(thread_id: str) -> asyncio.Lock:
 async def guardar(redis, job: dict[str, Any]) -> None:
     job["updated_at"] = ahora()
     await redis.set(data_key(job["job_id"]), json.dumps(job, ensure_ascii=False))
+    # El SET ya quedó. Un publish fallido solo atrasa el aviso: el stream relee.
+    try:
+        await redis.publish(event_channel(job["job_id"]), str(job.get("status") or ""))
+    except Exception:
+        logger.warning("No se pudo avisar el cambio del job %s", job.get("job_id"))
 
 
 async def leer(redis, job_id: str) -> dict[str, Any] | None:
@@ -108,9 +124,9 @@ def texto_de_pausa(payload: dict[str, Any] | None) -> str:
     """Texto de ``AWAITING_APPROVAL``. ``Datos`` solo si están los tres campos."""
     datos = payload if isinstance(payload, dict) else {}
     if datos.get("efecto") == "borrador":
-        accion = "Acción: se va a crear un borrador para que lo revises antes de entrar al libro."
+        accion = "Acción: se va a crear un borrador para que lo revises antes de sumarlo a tus gastos."
     else:
-        accion = "Acción: queda registrada. No entra al libro."
+        accion = "Acción: queda registrada. No se suma a tus gastos."
     lineas = [
         accion,
         f"Motivo: {_plano(datos.get('motivo'))}",
@@ -122,7 +138,9 @@ def texto_de_pausa(payload: dict[str, Any] | None) -> str:
         periodo = crudos.get("periodo")
         monto = crudos.get("monto")
         if categoria and periodo and monto:
-            lineas.append(f"Datos: categoria={categoria} periodo={periodo} monto={monto}")
+            lineas.append(
+                f"Datos: Categoría {_plano(categoria)}, período {_plano(periodo)}, monto {_plano(monto)}"
+            )
     return "\n".join(lineas)
 
 
@@ -150,6 +168,66 @@ def publico(job: dict[str, Any]) -> dict[str, Any]:
         "thread_id": job.get("thread_id") or job["job_id"],
         "result": job.get("result"),
     }
+
+
+_CIERRA_STREAM = frozenset({DONE, FAILED, AWAITING_APPROVAL})
+
+
+async def _esperar_aviso(pubsub, segundos: float) -> bool:
+    """True si alguien publicó. False si se cumplió la espera.
+
+    El ack de SUBSCRIBE vuelve enseguida como ``None`` y no cuenta como espera.
+    """
+    limite = asyncio.get_running_loop().time() + segundos
+    while True:
+        restante = limite - asyncio.get_running_loop().time()
+        if restante <= 0:
+            return False
+        try:
+            mensaje = await pubsub.get_message(ignore_subscribe_messages=True, timeout=restante)
+        except TimeoutError:
+            return False
+        if mensaje is None:
+            continue
+        if mensaje.get("type") == "message":
+            return True
+
+
+async def eventos_job(
+    redis,
+    job_id: str,
+    *,
+    espera: float = ESPERA_AVISO,
+) -> AsyncIterator[dict[str, Any] | None]:
+    """Estados públicos del job, en el momento en que cambian.
+
+    El primer valor es el estado actual. ``None`` es un latido. Termina en
+    ``DONE``, ``FAILED`` o ``AWAITING_APPROVAL``. Si el job desaparece, termina
+    sin emitir nada más.
+    """
+    pubsub = redis.pubsub()
+    await pubsub.subscribe(event_channel(job_id))
+    try:
+        ultimo: tuple[Any, Any] | None = None
+        while True:
+            job = await leer(redis, job_id)
+            if job is None:
+                return
+            actual = publico(job)
+            firma = (actual["status"], actual.get("result"))
+            if firma != ultimo:
+                ultimo = firma
+                yield actual
+                if actual["status"] in _CIERRA_STREAM:
+                    return
+            if await _esperar_aviso(pubsub, espera):
+                continue
+            yield None
+    finally:
+        try:
+            await pubsub.aclose()
+        except Exception:
+            logger.warning("No se pudo cerrar el aviso del job %s", job_id)
 
 
 async def reclamar_hilo(redis, user_id: str, thread_id: str | None) -> str | None:
@@ -197,7 +275,7 @@ async def crear_job(
         "created_at": ahora(),
         "updated_at": ahora(),
     }
-    await redis.set(data_key(job_id), json.dumps(job, ensure_ascii=False))
+    await guardar(redis, job)
     await redis.rpush(QUEUE_KEY, job_id)
     return job
 
@@ -358,7 +436,7 @@ async def procesar(redis, graph, job_id: str) -> None:
                 reanudar=reanudar,
             )
     except Exception as exc:
-        logger.error("Job %s falló: %s", job_id, type(exc).__name__)
+        logger.exception("Job %s falló", job_id)
         await _anotar(user_id, thread_id, "nota", RESULTADO_FALLO)
         await actualizar(
             redis,

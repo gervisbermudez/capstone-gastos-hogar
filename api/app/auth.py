@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from datetime import datetime, timedelta, timezone
 
@@ -55,6 +56,20 @@ def emitir_token(user_id: str) -> str:
         "exp": ahora + timedelta(seconds=VIDA_TOKEN_SEGUNDOS),
     }
     return jwt.encode(payload, _secreto(), algorithm=_ALGORITMO)
+
+
+def usuario_de_saludo(crudo: str) -> str | None:
+    """User id del primer mensaje del WebSocket. None si no es un token válido."""
+    try:
+        datos = json.loads(crudo)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(datos, dict):
+        return None
+    token = datos.get("token")
+    if not isinstance(token, str) or not token.strip():
+        return None
+    return leer_user_id(token.strip())
 
 
 def leer_user_id(token: str) -> str | None:

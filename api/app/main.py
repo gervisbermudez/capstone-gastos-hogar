@@ -1,12 +1,14 @@
 """API que encola una consulta y devuelve el job_id al instante.
 
-POST /tasks no corre el agente. GET /tasks/{id} lee Redis.
+POST /tasks no corre el agente. GET /tasks/{id} lee Redis y no bloquea.
+WS /tasks/{id}/ws avisa cada cambio por un socket.
 POST /tasks/{id}/approve reanuda un hilo que quedó pausado.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import importlib
 import logging
 import os
@@ -14,15 +16,16 @@ import sys
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import redis.asyncio as aioredis
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from . import repositorio
-from .auth import usuario_actual
+from .auth import usuario_actual, usuario_de_saludo
+from .cache_resumen import publicar_redis
 from .cupo import exigir_cupo
 from .esquemas import (
     Aprobacion,
@@ -31,6 +34,7 @@ from .esquemas import (
     ListaHilos,
     TareaCreada,
     TareaEstado,
+    TareaReanudada,
 )
 from .graph import construir_grafo
 from .observability import init_observability
@@ -40,6 +44,7 @@ from .worker import (
     crear_job,
     encolar_reanudacion,
     es_del_usuario,
+    eventos_job,
     leer,
     marcar_cortados,
     reclamar_hilo,
@@ -114,9 +119,11 @@ async def lifespan(app: FastAPI):
 
     stop = asyncio.Event()
     tarea = asyncio.create_task(worker_loop(cliente, app.state.graph, stop))
+    publicar_redis(cliente)
     try:
         yield
     finally:
+        publicar_redis(None)
         stop.set()
         try:
             await asyncio.wait_for(tarea, timeout=15)
@@ -127,7 +134,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Gastos del hogar",
+    title="Capstone",
     summary="Carga comprobantes, confirma el libro y consulta los gastos.",
     version="1.0.0",
     lifespan=lifespan,
@@ -209,12 +216,105 @@ async def ver_tarea(
     )
 
 
-@app.post("/tasks/{job_id}/approve", status_code=202)
+_FIN_SOCKET = object()
+_WS_ORIGEN = 1008
+_WS_SESION = 4401
+_WS_JOB = 4404
+
+
+def _origen_del_socket(websocket: WebSocket) -> bool:
+    """Mismo origen que el CORS. El navegador no manda el header Bearer en el handshake."""
+    permitido = os.getenv("FRONTEND_ORIGIN", "").strip().rstrip("/")
+    origen = (websocket.headers.get("origin") or "").rstrip("/")
+    return bool(permitido) and origen == permitido
+
+
+async def _cerrar_socket(websocket: WebSocket, code: int) -> None:
+    with contextlib.suppress(RuntimeError, WebSocketDisconnect):
+        await websocket.close(code=code)
+
+
+async def _siguiente_aviso(generador: Any) -> Any:
+    try:
+        return await anext(generador)
+    except StopAsyncIteration:
+        return _FIN_SOCKET
+
+
+async def _avisar_por_socket(websocket: WebSocket, redis: Any, job_id: str) -> None:
+    """Manda cada cambio. Si el navegador se va, suelta el canal de Redis."""
+    generador = eventos_job(redis, job_id)
+    aviso: asyncio.Task[Any] | None = None
+    corte: asyncio.Task[Any] | None = asyncio.create_task(websocket.receive())
+    try:
+        while True:
+            if aviso is None:
+                aviso = asyncio.create_task(_siguiente_aviso(generador))
+            if corte is None:
+                corte = asyncio.create_task(websocket.receive())
+            hecho, _ = await asyncio.wait({aviso, corte}, return_when=asyncio.FIRST_COMPLETED)
+            if corte in hecho:
+                try:
+                    mensaje = corte.result()
+                except Exception:
+                    return
+                corte = None
+                if isinstance(mensaje, dict) and mensaje.get("type") == "websocket.disconnect":
+                    return
+            if aviso is not None and aviso in hecho:
+                estado = aviso.result()
+                aviso = None
+                if estado is _FIN_SOCKET:
+                    await _cerrar_socket(websocket, 1000)
+                    return
+                try:
+                    await websocket.send_json({"tipo": "ping"} if estado is None else estado)
+                except (WebSocketDisconnect, RuntimeError):
+                    return
+    finally:
+        for tarea in (aviso, corte):
+            if tarea is None:
+                continue
+            if not tarea.done():
+                tarea.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await tarea
+        await generador.aclose()
+
+
+@app.websocket("/tasks/{job_id}/ws")
+async def socket_tarea(websocket: WebSocket, job_id: str) -> None:
+    """Un socket por consulta. El GET de al lado sigue sin bloquear."""
+    if not _origen_del_socket(websocket):
+        await websocket.accept()
+        await _cerrar_socket(websocket, _WS_ORIGEN)
+        return
+    await websocket.accept()
+    try:
+        crudo = await asyncio.wait_for(websocket.receive_text(), timeout=5)
+    except (asyncio.TimeoutError, WebSocketDisconnect, RuntimeError):
+        await _cerrar_socket(websocket, _WS_SESION)
+        return
+    user_id = usuario_de_saludo(crudo)
+    if user_id is None or await repositorio.buscar_usuario_por_id(user_id) is None:
+        await _cerrar_socket(websocket, _WS_SESION)
+        return
+    job = await leer(app.state.redis, job_id)
+    if not es_del_usuario(job, user_id):
+        await _cerrar_socket(websocket, _WS_JOB)
+        return
+    try:
+        await _avisar_por_socket(websocket, app.state.redis, job_id)
+    finally:
+        await _cerrar_socket(websocket, 1000)
+
+
+@app.post("/tasks/{job_id}/approve", status_code=202, response_model=TareaReanudada)
 async def aprobar(
     job_id: str,
     decision: Aprobacion,
     usuario: Annotated[object, Depends(usuario_actual)],
-) -> dict[str, str]:
+) -> TareaReanudada:
     user_id = _id_usuario(usuario)
     job = await leer(app.state.redis, job_id)
     if not es_del_usuario(job, user_id):
@@ -227,7 +327,7 @@ async def aprobar(
             status_code=409,
             detail=f"El job está en {resultado} y no espera aprobación.",
         )
-    return {"job_id": job_id, "status": PENDING}
+    return TareaReanudada(job_id=job_id, status=PENDING)
 
 
 @app.get("/hilos", response_model=ListaHilos)
