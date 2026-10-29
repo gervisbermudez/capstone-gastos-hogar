@@ -18,7 +18,7 @@ from langchain_core.tools import tool
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from ..state import AgentState, contexto_turno, pregunta_actual
-from ..texto import extraer_texto
+from ..texto import extraer_texto, sin_cita_comprobante
 from .bucle import correr_async, usuario_del_turno
 from .libro import consultar_gastos_usuario, formatear_gastos
 
@@ -153,9 +153,9 @@ def _instruccion() -> str:
 def _agente_analista():
     """Un agente nuevo por llamada.
 
-    ``correr_async`` cierra el loop al terminar. Un cliente HTTP cacheado
-    queda atado a ese loop y el job siguiente falla. Los tests pueden
-    dejar un doble en ``_reemplazo``; en producción queda en None.
+    El loop del hilo queda abierto entre nodos. Un cliente HTTP no debe
+    sobrevivir a un loop cerrado. Los tests pueden dejar un doble en
+    ``_reemplazo``; en producción queda en None.
     """
     if _reemplazo is not None:
         return _reemplazo
@@ -193,7 +193,7 @@ def _lineas_tool(mensajes: list, nombre: str) -> list[str]:
 
 
 def _es_comparacion(pregunta: str) -> bool:
-    texto = (pregunta or "").lower()
+    texto = sin_cita_comprobante(pregunta or "").lower()
     return any(
         marca in texto
         for marca in ("compará", "compara", "comparar", "contra", "versus", " vs ", "diferencia")

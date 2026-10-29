@@ -113,7 +113,7 @@ async def buscar_comprobantes(
 
 
 def _agente_investigador():
-    """Un agente nuevo por llamada. El loop de ``correr_async`` no se reutiliza."""
+    """Un agente nuevo por llamada. El loop del hilo sí se reutiliza entre nodos."""
     if _reemplazo is not None:
         return _reemplazo
     from ..llm import armar_llm

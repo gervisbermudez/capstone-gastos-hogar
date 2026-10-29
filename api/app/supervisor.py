@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 
 from .agents.bucle import correr_async
 from .state import AgentState, aportes_del_turno, pregunta_actual
-from .texto import extraer_texto
+from .texto import extraer_texto, sin_cita_comprobante
 
 MAX_PASOS = 6
 MAX_POR_AGENTE = 2
@@ -85,7 +85,7 @@ Contribuciones hasta ahora:
 
 def clasificar_pregunta(pregunta: str) -> str:
     """``texto``, ``montos``, ``ambos`` o ``ambiguo``. Las tres preguntas de la fuente no caen en ambiguo."""
-    texto = (pregunta or "").lower()
+    texto = sin_cita_comprobante(pregunta or "").lower()
     pide_texto = any(frase in texto for frase in _TEXTO)
     pide_montos = any(frase in texto for frase in _MONTOS) or _PAGO.search(texto) is not None
     if pide_texto and pide_montos:
@@ -98,7 +98,7 @@ def clasificar_pregunta(pregunta: str) -> str:
 
 
 def es_comparacion(pregunta: str) -> bool:
-    texto = (pregunta or "").lower()
+    texto = sin_cita_comprobante(pregunta or "").lower()
     return any(marca in texto for marca in _COMPARACION)
 
 

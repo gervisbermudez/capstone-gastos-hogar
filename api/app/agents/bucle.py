@@ -2,7 +2,8 @@
 
 El lifespan compila el grafo con ``RedisSaver``. Ese saver no implementa
 ``aget_tuple``, así que el worker sigue en ``graph.invoke`` dentro de un
-hilo. La llamada al modelo igual es ``ainvoke``: ese hilo no tiene un loop.
+hilo. La llamada al modelo igual es ``ainvoke``: ese hilo no tiene un loop
+mientras corre el grafo.
 """
 
 from __future__ import annotations
@@ -20,6 +21,22 @@ usuario_del_turno: contextvars.ContextVar[str] = contextvars.ContextVar(
     default="",
 )
 
+_loop_del_hilo = threading.local()
+
+
+def _loop_abierto() -> asyncio.AbstractEventLoop:
+    """Un loop por hilo, y no se cierra entre nodos.
+
+    ``asyncio.run`` cierra el loop al terminar. El cliente HTTP del modelo
+    queda atado a ese loop y el nodo siguiente revienta con
+    ``Event loop is closed`` al cerrar la respuesta.
+    """
+    loop = getattr(_loop_del_hilo, "loop", None)
+    if loop is None or loop.is_closed():
+        loop = asyncio.new_event_loop()
+        _loop_del_hilo.loop = loop
+    return loop
+
 
 def correr_async(coro: Coroutine[object, object, T]) -> T:
     """Corre la corrutina en un contexto vacío.
@@ -31,7 +48,9 @@ def correr_async(coro: Coroutine[object, object, T]) -> T:
     contexto = contextvars.Context()
 
     def _ejecutar() -> T:
-        return contexto.run(asyncio.run, coro)
+        loop = _loop_abierto()
+        asyncio.set_event_loop(loop)
+        return contexto.run(loop.run_until_complete, coro)
 
     try:
         asyncio.get_running_loop()

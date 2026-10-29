@@ -18,6 +18,7 @@ from langgraph.types import interrupt
 
 from .agents.bucle import correr_async
 from .state import AgentState, pregunta_actual
+from .texto import sin_cita_comprobante
 
 UMBRAL_MONTO = 1000
 AVISOS = Path(__file__).resolve().parent.parent / "avisos" / "rrhh.jsonl"
@@ -85,7 +86,7 @@ _PAGOS = ("pagar", "pagá", "paga ", "pago de", "abonar", "aboná")
 
 def es_critica_texto(pregunta: str) -> tuple[bool, str]:
     """Decide si el pedido necesita un humano antes de actuar."""
-    texto = (pregunta or "").lower()
+    texto = sin_cita_comprobante(pregunta or "").lower()
     if any(frase in texto for frase in _EFECTOS):
         return True, "La tarea pide una acción con efecto o un costo muy alto."
     if any(frase in texto for frase in _PAGOS) and _hay_monto_alto(texto):
@@ -106,7 +107,7 @@ def nodo_evaluar_criticidad(state: AgentState) -> dict:
 
 
 def _payload_pausa(state: AgentState) -> dict:
-    pregunta = pregunta_actual(state)
+    pregunta = sin_cita_comprobante(pregunta_actual(state))
     payload = {
         "pregunta": (
             "Esta tarea quiere ejecutar una acción con efecto. "
@@ -137,7 +138,7 @@ def nodo_aprobacion(state: AgentState) -> dict:
 
 
 def _es_pago(pregunta: str) -> bool:
-    texto = (pregunta or "").lower()
+    texto = sin_cita_comprobante(pregunta or "").lower()
     return (
         "asent" in texto
         or "registrá el pago" in texto
@@ -151,7 +152,7 @@ _ADVERTENCIA_BORRADOR = "Este borrador salió del chat. Revisalo antes de confir
 
 def nodo_ejecutar(state: AgentState) -> dict:
     """Corre el efecto recién cuando el humano ya aprobó."""
-    pregunta = pregunta_actual(state)
+    pregunta = sin_cita_comprobante(pregunta_actual(state))
     user_id = str(state.get("user_id") or "").strip()
     if not state.get("aprobado"):
         if _es_pago(pregunta):
@@ -215,7 +216,8 @@ def registrar_aviso(mensaje: str, *, user_id: str = "") -> Path:
 
 
 def _datos_pago(pregunta: str) -> dict[str, str] | None:
-    texto = (pregunta or "").lower()
+    limpia = sin_cita_comprobante(pregunta or "")
+    texto = limpia.lower()
     if "expensa" in texto:
         categoria = "expensas"
     elif "alquiler" in texto:
@@ -235,7 +237,7 @@ def _datos_pago(pregunta: str) -> dict[str, str] | None:
                 periodo = f"{anio}-{mes}"
                 break
     monto = None
-    cifras = re.findall(r"\d+\.\d{2}", pregunta or "")
+    cifras = re.findall(r"\d+\.\d{2}", limpia)
     if cifras:
         monto = cifras[-1]
     if not periodo or not monto:
