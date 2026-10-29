@@ -1,8 +1,18 @@
 import { Portal, Spinner, Stack, Toast, Toaster, createToaster } from "@chakra-ui/react"
 
+const ALTURA_BARRA = "56px"
+
 export const toaster = createToaster({
-  placement: "bottom-end",
+  placement: "top-end",
   pauseOnPageIdle: true,
+  duration: 6000,
+  removeDelay: 420,
+  offsets: {
+    top: `calc(${ALTURA_BARRA} + 1.75rem)`,
+    right: "1.25rem",
+    bottom: "1rem",
+    left: "1rem",
+  },
 })
 
 function esEstado(tipo: string | undefined): tipo is "success" | "warning" | "error" {
