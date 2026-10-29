@@ -99,14 +99,17 @@ function useVistaLocal(archivo: File | null): string | null {
 function VistaPrevia({ archivo, url, leyendo }: { archivo: File; url: string | null; leyendo: boolean }) {
   const nombre = archivo.name.trim() || "Comprobante"
   const { esImagen, esPdf } = clasificar(archivo)
+  const ajustada = Boolean(url && esImagen)
 
   return (
     <Box
       position="relative"
-      w="100%"
+      alignSelf={ajustada ? "center" : "stretch"}
+      w={ajustada ? "auto" : "100%"}
+      maxW="100%"
       minW={0}
       h={esPdf ? { base: "24rem", md: "32rem" } : "auto"}
-      minH={!esPdf && (!esImagen || !url) ? { base: "12rem", md: "16rem" } : undefined}
+      minH={!esPdf && !ajustada ? { base: "12rem", md: "16rem" } : undefined}
       borderRadius="20px"
       overflow="hidden"
       bg="bg.subtle"
@@ -116,10 +119,10 @@ function VistaPrevia({ archivo, url, leyendo }: { archivo: File; url: string | n
           src={url}
           alt={nombre}
           display="block"
-          w="100%"
+          w="auto"
           h="auto"
+          maxW="100%"
           maxH={{ base: "20rem", md: "28rem" }}
-          objectFit="contain"
         />
       ) : null}
       {url && esPdf ? (
@@ -275,17 +278,9 @@ export function CargaComprobante({
             </Text>
           </Stack>
           <VistaPrevia archivo={archivo} url={url} leyendo={leyendo} />
-          <Flex
-            direction={{ base: "column", md: "row" }}
-            justify={{ md: "space-between" }}
-            align={{ base: "stretch", md: "center" }}
-            gap={3}
-          >
+          <Flex display={{ base: "none", md: "flex" }} justify="space-between" align="center" gap={3}>
             <Button
               type="button"
-              order={{ base: 3, md: 1 }}
-              alignSelf={{ base: "center", md: "auto" }}
-              size={{ base: "sm", md: "md" }}
               variant="ghost"
               borderRadius="full"
               disabled={leyendo}
@@ -294,17 +289,25 @@ export function CargaComprobante({
             >
               Quitar
             </Button>
-            <Flex
-              order={{ base: 1, md: 2 }}
-              direction={{ base: "column", md: "row" }}
-              align={{ md: "center" }}
-              gap={3}
-              w={{ base: "100%", md: "auto" }}
-            >
+            <Flex align="center" gap={3}>
+              <FileUpload.Root {...comunes} accept={ACEPTADOS}>
+                <FileUpload.HiddenInput />
+                <FileUpload.Trigger asChild>
+                  <Button type="button" variant="outline" borderRadius="full" disabled={leyendo} css={botonContorno}>
+                    Cambiar
+                  </Button>
+                </FileUpload.Trigger>
+              </FileUpload.Root>
+              <FileUpload.Root {...comunes} accept={IMAGENES} capture="environment">
+                <FileUpload.HiddenInput />
+                <FileUpload.Trigger asChild>
+                  <Button type="button" variant="outline" borderRadius="full" disabled={leyendo} css={botonContorno}>
+                    Sacar foto
+                  </Button>
+                </FileUpload.Trigger>
+              </FileUpload.Root>
               <Button
                 type="button"
-                order={{ base: 1, md: 2 }}
-                w={{ base: "100%", md: "auto" }}
                 loading={leyendo}
                 loadingText="Leyendo…"
                 borderRadius="full"
@@ -313,40 +316,65 @@ export function CargaComprobante({
               >
                 Leer comprobante
               </Button>
-              <Flex order={{ base: 2, md: 1 }} gap={3} w={{ base: "100%", md: "auto" }}>
-                <FileUpload.Root {...comunes} accept={ACEPTADOS} flex={{ base: "1", md: "none" }}>
-                  <FileUpload.HiddenInput />
-                  <FileUpload.Trigger asChild>
-                    <Button
-                      type="button"
-                      w={{ base: "100%", md: "auto" }}
-                      variant="outline"
-                      borderRadius="full"
-                      disabled={leyendo}
-                      css={botonContorno}
-                    >
-                      Cambiar
-                    </Button>
-                  </FileUpload.Trigger>
-                </FileUpload.Root>
-                <FileUpload.Root {...comunes} accept={IMAGENES} capture="environment" flex={{ base: "1", md: "none" }}>
-                  <FileUpload.HiddenInput />
-                  <FileUpload.Trigger asChild>
-                    <Button
-                      type="button"
-                      w={{ base: "100%", md: "auto" }}
-                      variant="outline"
-                      borderRadius="full"
-                      disabled={leyendo}
-                      css={botonContorno}
-                    >
-                      Sacar foto
-                    </Button>
-                  </FileUpload.Trigger>
-                </FileUpload.Root>
-              </Flex>
             </Flex>
           </Flex>
+          <Stack display={{ base: "flex", md: "none" }} gap={3}>
+            <Button
+              type="button"
+              w="100%"
+              loading={leyendo}
+              loadingText="Leyendo…"
+              borderRadius="full"
+              onClick={cargar}
+              css={botonSol}
+            >
+              Leer comprobante
+            </Button>
+            <Flex gap={3}>
+              <FileUpload.Root {...comunes} accept={ACEPTADOS} flex="1">
+                <FileUpload.HiddenInput />
+                <FileUpload.Trigger asChild>
+                  <Button
+                    type="button"
+                    w="100%"
+                    variant="outline"
+                    borderRadius="full"
+                    disabled={leyendo}
+                    css={botonContorno}
+                  >
+                    Cambiar
+                  </Button>
+                </FileUpload.Trigger>
+              </FileUpload.Root>
+              <FileUpload.Root {...comunes} accept={IMAGENES} capture="environment" flex="1">
+                <FileUpload.HiddenInput />
+                <FileUpload.Trigger asChild>
+                  <Button
+                    type="button"
+                    w="100%"
+                    variant="outline"
+                    borderRadius="full"
+                    disabled={leyendo}
+                    css={botonContorno}
+                  >
+                    Sacar foto
+                  </Button>
+                </FileUpload.Trigger>
+              </FileUpload.Root>
+            </Flex>
+            <Button
+              type="button"
+              alignSelf="center"
+              size="sm"
+              variant="ghost"
+              borderRadius="full"
+              disabled={leyendo}
+              onClick={quitar}
+              css={botonFantasma}
+            >
+              Quitar
+            </Button>
+          </Stack>
         </Stack>
       ) : (
         <Stack gap={3}>
