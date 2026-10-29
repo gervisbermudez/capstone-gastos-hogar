@@ -409,35 +409,37 @@ export function Revision() {
     return () => ctrl.abort()
   }, [intentoCatalogo])
 
+  const idDocumento = documento?.id === id ? id : ""
+
   useEffect(() => {
-    if (!id) return
+    if (!idDocumento) return
     const ctrl = new AbortController()
     let vivo = true
     let url: string | null = null
     cliente
-      .archivo(id, ctrl.signal)
+      .archivo(idDocumento, ctrl.signal)
       .then((blob) => {
         if (!vivo) return
         url = URL.createObjectURL(blob)
-        setVistaServidor({ id, url, mime: mimeBase(blob.type) })
+        setVistaServidor({ id: idDocumento, url, mime: mimeBase(blob.type) })
       })
       .catch((error: unknown) => {
         if (!vivo || esAbort(error)) return
         if (error instanceof ErrorApi && error.status === 404) return
         setFallaArchivo({
-          id,
+          id: idDocumento,
           texto: error instanceof ErrorApi ? error.message : "No se pudo abrir el archivo.",
         })
       })
       .finally(() => {
-        if (vivo) setConsultaArchivo({ id, listo: true })
+        if (vivo) setConsultaArchivo({ id: idDocumento, listo: true })
       })
     return () => {
       vivo = false
       ctrl.abort()
       if (url) URL.revokeObjectURL(url)
     }
-  }, [id])
+  }, [idDocumento])
 
   const fichaLista = !cargando && documento?.id === id
 
