@@ -50,7 +50,8 @@ const COLOR = {
 } as const
 
 export function Campana() {
-  const { notificaciones, noLeidas, marcarLeida, marcarTodas } = useCanal()
+  const { notificaciones, noLeidas, marcarLeida, marcarTodas, limpiarLeidas } = useCanal()
+  const hayLeidas = notificaciones.some((item) => item.leida)
   const [abierto, setAbierto] = useState(false)
   const caja = useRef<HTMLDivElement>(null)
 
@@ -138,20 +139,37 @@ export function Campana() {
           p={3}
           css={panel}
         >
-          <Flex align="center" justify="space-between" gap={3} mb={2} px={1}>
+          <Flex align="center" justify="space-between" gap={2} mb={2} px={1} wrap="wrap">
             <Text fontWeight="medium">Notificaciones</Text>
-            {noLeidas > 0 ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                borderRadius="full"
-                color="fg.muted"
-                _hover={{ bg: "bg.hover", color: "fg" }}
-                onClick={() => void marcarTodas()}
-              >
-                Marcar todas
-              </Button>
+            {hayLeidas || noLeidas > 0 ? (
+              <Flex gap={1} wrap="wrap" justify="flex-end">
+                {hayLeidas ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    borderRadius="full"
+                    color="fg.muted"
+                    _hover={{ bg: "bg.hover", color: "fg" }}
+                    onClick={() => void limpiarLeidas()}
+                  >
+                    Limpiar leídas
+                  </Button>
+                ) : null}
+                {noLeidas > 0 ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    borderRadius="full"
+                    color="fg.muted"
+                    _hover={{ bg: "bg.hover", color: "fg" }}
+                    onClick={() => void marcarTodas()}
+                  >
+                    Marcar todas
+                  </Button>
+                ) : null}
+              </Flex>
             ) : null}
           </Flex>
           {notificaciones.length === 0 ? (

@@ -42,6 +42,14 @@ async def marcar_todas(
     return Response(status_code=204)
 
 
+@router.delete("/notificaciones/leidas", status_code=204)
+async def limpiar_leidas(
+    usuario: dict = Depends(usuario_actual),
+) -> Response:
+    await repositorio.descartar_notificaciones_leidas(user_id=usuario["user_id"])
+    return Response(status_code=204)
+
+
 @router.post("/notificaciones/{notificacion_id}/leida", status_code=204)
 async def marcar_una(
     notificacion_id: str,

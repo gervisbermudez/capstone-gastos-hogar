@@ -92,6 +92,7 @@ CREATE TABLE IF NOT EXISTS notificaciones (
     recurso_id TEXT,
     dedupe TEXT,
     leida_en TEXT,
+    descartada_en TEXT,
     creada_en TEXT NOT NULL
 );
 
@@ -108,6 +109,7 @@ _COLUMNAS_COMPROBANTES = (
     ("cambios_json", "TEXT"),
     ("extraidos_json", "TEXT"),
 )
+_COLUMNAS_NOTIFICACIONES = (("descartada_en", "TEXT"),)
 
 
 async def _migrar(conn: aiosqlite.Connection) -> None:
@@ -127,6 +129,13 @@ async def _migrar(conn: aiosqlite.Connection) -> None:
     columnas_usuario = {fila["name"] for fila in filas}
     if "nombre" not in columnas_usuario:
         await conn.execute("ALTER TABLE usuarios ADD COLUMN nombre TEXT")
+    cursor = await conn.execute("PRAGMA table_info(notificaciones)")
+    filas = await cursor.fetchall()
+    columnas_aviso = {fila["name"] for fila in filas}
+    for nombre, definicion in _COLUMNAS_NOTIFICACIONES:
+        if nombre in columnas_aviso:
+            continue
+        await conn.execute(f"ALTER TABLE notificaciones ADD COLUMN {nombre} {definicion}")
 
 
 def ruta_base() -> Path:

@@ -1299,7 +1299,7 @@ def _notificacion_publica(fila) -> dict:
     recurso = None
     if fila["recurso_clase"] and fila["recurso_id"]:
         recurso = {"clase": fila["recurso_clase"], "id": fila["recurso_id"]}
-    return {
+    publica = {
         "id": fila["id"],
         "tipo": fila["tipo"],
         "titulo": fila["titulo"],
@@ -1309,6 +1309,9 @@ def _notificacion_publica(fila) -> dict:
         "leida": fila["leida_en"] is not None,
         "creada_en": fila["creada_en"],
     }
+    if fila["descartada_en"] is not None:
+        publica["descartada"] = True
+    return publica
 
 
 async def insertar_notificacion(
@@ -1380,7 +1383,7 @@ async def listar_notificaciones(*, user_id: str, limite: int = 40) -> dict:
         cursor = await conn.execute(
             """
             SELECT * FROM notificaciones
-            WHERE user_id = ?
+            WHERE user_id = ? AND descartada_en IS NULL
             ORDER BY creada_en DESC, id DESC
             LIMIT ?
             """,
@@ -1390,7 +1393,7 @@ async def listar_notificaciones(*, user_id: str, limite: int = 40) -> dict:
         cuenta = await conn.execute(
             """
             SELECT COUNT(*) FROM notificaciones
-            WHERE user_id = ? AND leida_en IS NULL
+            WHERE user_id = ? AND leida_en IS NULL AND descartada_en IS NULL
             """,
             (user_id,),
         )
@@ -1422,14 +1425,36 @@ async def marcar_notificacion_leida(*, user_id: str, notificacion_id: str) -> bo
 
 
 async def marcar_notificaciones_leidas(*, user_id: str) -> None:
+    """Marca lo ya creado. Una fila posterior al corte sigue sin leer."""
+    corte = _ahora()
     async with db.conectar() as conn:
         await conn.execute(
             """
             UPDATE notificaciones
             SET leida_en = ?
-            WHERE user_id = ? AND leida_en IS NULL
+            WHERE user_id = ? AND leida_en IS NULL AND creada_en <= ?
             """,
-            (_ahora(), user_id),
+            (corte, user_id, corte),
+        )
+
+
+async def descartar_notificaciones_leidas(*, user_id: str) -> None:
+    """Oculta las ya leídas. La fila queda para que el dedupe no las vuelva a crear.
+
+    Una marcada después del corte sigue en la bandeja.
+    """
+    corte = _ahora()
+    async with db.conectar() as conn:
+        await conn.execute(
+            """
+            UPDATE notificaciones
+            SET descartada_en = ?
+            WHERE user_id = ?
+              AND leida_en IS NOT NULL
+              AND descartada_en IS NULL
+              AND leida_en <= ?
+            """,
+            (corte, user_id, corte),
         )
 
 

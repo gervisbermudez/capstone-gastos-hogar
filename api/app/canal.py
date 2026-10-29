@@ -1,7 +1,8 @@
 """Canal de sesión. Cualquier módulo publica con ``emitir``.
 
-Redis reparte el JSON. Si viene una notificación, queda en SQLite antes
-de publicar: un cliente que se conecta después la lee por HTTP.
+Redis reparte el JSON. Si viene una notificación, se guarda en SQLite
+antes de publicar: un cliente que se conecta después la lee por HTTP.
+Si ese insert falla, el evento igual sale y la bandeja no lleva esa fila.
 """
 
 from __future__ import annotations
@@ -66,7 +67,9 @@ async def emitir(
     """Publica un evento. Con ``notificacion``, persiste la bandeja primero.
 
     ``dedupe`` repetido no crea otra fila. El evento igual sale, con el id
-    de la fila que ya estaba.
+    de la fila que ya estaba. Si esa fila se limpió de la bandeja, el
+    evento sale sin notificación. Si el insert falla, ``notificacion``
+    sale en null y el evento igual se publica.
     """
     if not user_id or not tipo:
         raise ValueError("evento incompleto")
@@ -81,19 +84,24 @@ async def emitir(
         accion = notificacion.get("accion") if isinstance(notificacion.get("accion"), dict) else None
         etiqueta = accion.get("etiqueta") if accion else None
         ruta = accion.get("ruta") if accion else None
-        fila = await repositorio.insertar_notificacion(
-            user_id=user_id,
-            tipo=tipo,
-            titulo=str(notificacion.get("titulo") or ""),
-            cuerpo=str(notificacion.get("cuerpo") or ""),
-            accion_etiqueta=str(etiqueta) if etiqueta else None,
-            accion_ruta=str(ruta) if ruta else None,
-            recurso_clase=clase,
-            recurso_id=recurso_id,
-            dedupe=dedupe,
-        )
-        aviso = _aviso_publico(fila)
-        creado_en = str(aviso["creada_en"])
+        try:
+            fila = await repositorio.insertar_notificacion(
+                user_id=user_id,
+                tipo=tipo,
+                titulo=str(notificacion.get("titulo") or ""),
+                cuerpo=str(notificacion.get("cuerpo") or ""),
+                accion_etiqueta=str(etiqueta) if etiqueta else None,
+                accion_ruta=str(ruta) if ruta else None,
+                recurso_clase=clase,
+                recurso_id=recurso_id,
+                dedupe=dedupe,
+            )
+        except Exception:
+            logger.warning("No se pudo guardar la notificación %s de %s", tipo, user_id)
+        else:
+            if not fila.get("descartada"):
+                aviso = _aviso_publico(fila)
+                creado_en = str(aviso["creada_en"])
 
     evento = {
         "id": str(uuid.uuid4()),

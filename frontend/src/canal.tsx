@@ -22,6 +22,7 @@ type Canal = {
   conectado: boolean
   marcarLeida: (id: string) => Promise<void>
   marcarTodas: () => Promise<void>
+  limpiarLeidas: () => Promise<void>
 }
 
 const ContextoCanal = createContext<Canal | null>(null)
@@ -41,6 +42,30 @@ function silenciar(evento: EventoCanal): boolean {
   return false
 }
 
+function fusionarLista(
+  locales: Notificacion[],
+  servidor: Notificacion[],
+  noLeidasServidor: number,
+  confirmadas: ReadonlySet<string>,
+  ocultas: ReadonlySet<string>,
+) {
+  const visibles = servidor.filter((item) => !ocultas.has(item.id))
+  const idsServidor = new Set(visibles.map((item) => item.id))
+  const localPorId = new Map(locales.map((item) => [item.id, item]))
+  const soloLocales = locales.filter((item) => {
+    if (ocultas.has(item.id) || idsServidor.has(item.id)) return false
+    if (item.leida && confirmadas.has(item.id)) return false
+    return true
+  })
+  const base = visibles.map((item) => {
+    const local = localPorId.get(item.id)
+    if (local?.leida && !item.leida) return { ...item, leida: true }
+    return item
+  })
+  const sinLeer = noLeidasServidor + soloLocales.filter((item) => !item.leida).length
+  return { items: [...soloLocales, ...base].slice(0, 40), sinLeer }
+}
+
 export function ProveedorCanal({ children }: { children: ReactNode }) {
   const { token } = useSesion()
   const navigate = useNavigate()
@@ -51,7 +76,12 @@ export function ProveedorCanal({ children }: { children: ReactNode }) {
   const sinLeerRef = useRef(0)
   const listaGen = useRef(0)
   const navigateRef = useRef(navigate)
+  const tokenRef = useRef(token)
+  const sesionRef = useRef<string | null>(token)
+  const ocultasRef = useRef(new Set<string>())
+  const confirmadasRef = useRef(new Set<string>())
   navigateRef.current = navigate
+  tokenRef.current = token
 
   const aplicarLista = useCallback((items: Notificacion[], sinLeer: number) => {
     itemsRef.current = items
@@ -69,7 +99,16 @@ export function ProveedorCanal({ children }: { children: ReactNode }) {
     const gen = ++listaGen.current
     return cliente.listarNotificaciones(signal).then((lista) => {
       if (signal?.aborted) return null
-      tomarLista(lista.items, lista.no_leidas, gen)
+      if (gen !== listaGen.current) return lista
+      for (const item of lista.items) confirmadasRef.current.add(item.id)
+      const fusion = fusionarLista(
+        itemsRef.current,
+        lista.items,
+        lista.no_leidas,
+        confirmadasRef.current,
+        ocultasRef.current,
+      )
+      tomarLista(fusion.items, fusion.sinLeer, gen)
       return lista
     })
   }, [tomarLista])
@@ -77,28 +116,74 @@ export function ProveedorCanal({ children }: { children: ReactNode }) {
   const marcarLeida = useCallback(async (id: string) => {
     const actual = itemsRef.current.find((item) => item.id === id)
     if (!actual || actual.leida) return
+    const sinLeerPrevio = sinLeerRef.current
+    const idsPrevios = new Set(itemsRef.current.map((item) => item.id))
     const siguientes = itemsRef.current.map((item) => (item.id === id ? { ...item, leida: true } : item))
-    tomarLista(siguientes, Math.max(0, sinLeerRef.current - 1), ++listaGen.current)
+    tomarLista(siguientes, Math.max(0, sinLeerPrevio - 1), ++listaGen.current)
     try {
       await cliente.marcarNotificacionLeida(id)
     } catch {
+      if (!tokenRef.current) return
+      const restauradas = itemsRef.current.map((item) => (item.id === id ? { ...item, leida: false } : item))
+      const llegadas = restauradas.filter((item) => !idsPrevios.has(item.id) && !item.leida).length
+      aplicarLista(restauradas, sinLeerPrevio + llegadas)
       await pedirLista().catch(() => undefined)
     }
-  }, [pedirLista, tomarLista])
+  }, [aplicarLista, pedirLista, tomarLista])
 
   const marcarTodas = useCallback(async () => {
-    if (!itemsRef.current.some((item) => !item.leida)) return
+    const previas = itemsRef.current
+    if (!previas.some((item) => !item.leida)) return
+    const sinLeerPrevio = sinLeerRef.current
+    const leidaPrevia = new Map(previas.map((item) => [item.id, item.leida]))
     tomarLista(
-      itemsRef.current.map((item) => ({ ...item, leida: true })),
+      previas.map((item) => ({ ...item, leida: true })),
       0,
       ++listaGen.current,
     )
     try {
       await cliente.marcarNotificacionesLeidas()
     } catch {
+      if (!tokenRef.current) return
+      const restauradas = itemsRef.current.map((item) =>
+        leidaPrevia.get(item.id) === false ? { ...item, leida: false } : item,
+      )
+      const llegadas = restauradas.filter((item) => !leidaPrevia.has(item.id) && !item.leida).length
+      aplicarLista(restauradas, sinLeerPrevio + llegadas)
       await pedirLista().catch(() => undefined)
     }
-  }, [pedirLista, tomarLista])
+  }, [aplicarLista, pedirLista, tomarLista])
+
+  const limpiarLeidas = useCallback(async () => {
+    const previas = itemsRef.current
+    const leidas = previas.filter((item) => item.leida)
+    if (leidas.length === 0) return
+    const sinLeerPrevio = sinLeerRef.current
+    const idsQuitadas = leidas.map((item) => item.id)
+    for (const id of idsQuitadas) ocultasRef.current.add(id)
+    tomarLista(
+      previas.filter((item) => !item.leida),
+      sinLeerPrevio,
+      ++listaGen.current,
+    )
+    try {
+      await Promise.all(idsQuitadas.map((id) => cliente.marcarNotificacionLeida(id)))
+      await cliente.limpiarNotificacionesLeidas()
+    } catch {
+      if (!tokenRef.current) return
+      for (const id of idsQuitadas) ocultasRef.current.delete(id)
+      const actuales = itemsRef.current
+      const porId = new Map(actuales.map((item) => [item.id, item]))
+      const llegadas = actuales.filter((item) => !previas.some((itemPrevio) => itemPrevio.id === item.id))
+      const restauradas = [
+        ...llegadas,
+        ...previas.map((item) => porId.get(item.id) ?? item),
+      ].slice(0, 40)
+      const llegadasSinLeer = llegadas.filter((item) => !item.leida).length
+      aplicarLista(restauradas, sinLeerPrevio + llegadasSinLeer)
+      await pedirLista().catch(() => undefined)
+    }
+  }, [aplicarLista, pedirLista, tomarLista])
 
   useEffect(() => {
     registrarMarcaRecurso((clase, id) => {
@@ -124,6 +209,11 @@ export function ProveedorCanal({ children }: { children: ReactNode }) {
   }, [marcarLeida, pedirLista])
 
   useEffect(() => {
+    if (sesionRef.current !== token) {
+      sesionRef.current = token
+      ocultasRef.current.clear()
+      confirmadasRef.current.clear()
+    }
     if (!token) {
       tomarLista([], 0, ++listaGen.current)
       publicarConexion(false)
@@ -144,10 +234,10 @@ export function ProveedorCanal({ children }: { children: ReactNode }) {
 
     const incorporar = (evento: EventoCanal) => {
       const aviso = notificacionDe(evento)
-      if (!aviso) return
+      if (!aviso || ocultasRef.current.has(aviso.id)) return
       if (itemsRef.current.some((item) => item.id === aviso.id)) return
       const siguientes = [aviso, ...itemsRef.current].slice(0, 40)
-      tomarLista(siguientes, sinLeerRef.current + 1, ++listaGen.current)
+      aplicarLista(siguientes, sinLeerRef.current + 1)
       if (silenciar(evento)) return
       const accion = aviso.accion
       toaster.create({
@@ -170,22 +260,29 @@ export function ProveedorCanal({ children }: { children: ReactNode }) {
     const conectar = () => {
       if (cancelado) return
       let abierto = false
+      let instancia: WebSocket
       try {
-        socket = new WebSocket(urlSocket("/sesion/ws"))
+        instancia = new WebSocket(urlSocket("/sesion/ws"))
       } catch {
         timer = window.setTimeout(conectar, espera)
         espera = Math.min(espera * 2, 15000)
         return
       }
-      socket.addEventListener("open", () => {
+      socket = instancia
+      instancia.addEventListener("open", () => {
+        if (cancelado || socket !== instancia) {
+          if (instancia.readyState === WebSocket.OPEN) instancia.close()
+          return
+        }
         abierto = true
         try {
-          socket?.send(JSON.stringify({ token }))
+          instancia.send(JSON.stringify({ token }))
         } catch {
-          socket?.close()
+          instancia.close()
         }
       })
-      socket.addEventListener("message", (evento) => {
+      instancia.addEventListener("message", (evento) => {
+        if (cancelado || socket !== instancia) return
         if (typeof evento.data !== "string") return
         let json: unknown
         try {
@@ -205,10 +302,10 @@ export function ProveedorCanal({ children }: { children: ReactNode }) {
         incorporar(leido)
         publicarEvento(leido)
       })
-      socket.addEventListener("close", (evento) => {
+      instancia.addEventListener("close", (evento) => {
+        if (cancelado || socket !== instancia) return
         publicarConexion(false)
         setConectado(false)
-        if (cancelado) return
         if (evento.code === 4401 && abierto) {
           cerrarPorSesion()
           return
@@ -224,15 +321,15 @@ export function ProveedorCanal({ children }: { children: ReactNode }) {
       window.clearTimeout(timer)
       publicarConexion(false)
       setConectado(false)
-      if (socket && (socket.readyState === WebSocket.CONNECTING || socket.readyState === WebSocket.OPEN)) {
-        socket.close()
-      }
+      // close() en CONNECTING hace que Chrome anote el fallo del handshake.
+      // Si todavía negocia, el open de arriba lo cierra al pasar a OPEN.
+      if (socket && socket.readyState === WebSocket.OPEN) socket.close()
     }
-  }, [marcarLeida, pedirLista, token])
+  }, [aplicarLista, marcarLeida, pedirLista, token])
 
   const valor = useMemo<Canal>(
-    () => ({ notificaciones, noLeidas, conectado, marcarLeida, marcarTodas }),
-    [conectado, marcarLeida, marcarTodas, noLeidas, notificaciones],
+    () => ({ notificaciones, noLeidas, conectado, marcarLeida, marcarTodas, limpiarLeidas }),
+    [conectado, limpiarLeidas, marcarLeida, marcarTodas, noLeidas, notificaciones],
   )
 
   return <ContextoCanal.Provider value={valor}>{children}</ContextoCanal.Provider>

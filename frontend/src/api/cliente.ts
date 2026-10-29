@@ -826,6 +826,13 @@ export const cliente = {
     }).then(() => undefined)
   },
 
+  limpiarNotificacionesLeidas(): Promise<void> {
+    return pedir("/notificaciones/leidas", {
+      method: "DELETE",
+      esperado: 204,
+    }).then(() => undefined)
+  },
+
   listarDocumentos(signal?: AbortSignal): Promise<ListaDocumentos> {
     return pedir("/documentos", { signal, esperado: 200 }).then(asegurarLista)
   },
