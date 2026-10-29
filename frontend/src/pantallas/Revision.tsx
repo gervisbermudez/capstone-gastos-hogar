@@ -21,7 +21,7 @@ import { ErrorApi, cliente, esAbort } from "../api/cliente"
 import { esBorrador, etiquetaCategoria, type CategoriaItem, type DocumentoDetalle, type Hilo } from "../api/tipos"
 import { opcionActual, opcionesDelCatalogo, opcionesGenerales } from "../categorias"
 import { toaster } from "../avisos"
-import { Cargando } from "../componentes/Cargando"
+import { EsqueletoCampo, EsqueletoRevision, EsqueletoVista } from "../componentes/esqueleto"
 import {
   CampoProveedor,
   ChipArchivo,
@@ -609,7 +609,7 @@ export function Revision() {
     }
   }
 
-  if (cargando) return <Cargando texto="Abriendo el comprobante" />
+  if (cargando) return <EsqueletoRevision />
 
   if (!documento || !form) {
     return (
@@ -797,6 +797,7 @@ export function Revision() {
             </Card.Header>
             <Card.Body>
               <Stack gap={3}>
+                {!vista && !archivoListo && !textoFallaArchivo ? <EsqueletoVista /> : null}
                 {vista && esImagen ? (
                   <Image
                     src={vista.url}
@@ -980,6 +981,9 @@ export function Revision() {
                             </NativeSelect.Field>
                             <NativeSelect.Indicator />
                           </NativeSelect.Root>
+                          {catalogo === null && !errorCatalogo ? (
+                            <EsqueletoCampo etiqueta="Cargando categorías" />
+                          ) : (
                           <Field.HelperText color="fg.muted">
                             {errorCatalogo ? (
                               <>
@@ -1001,9 +1005,7 @@ export function Revision() {
                                   Reintentar
                                 </Button>
                               </>
-                            ) : catalogo === null ? (
-                              "Cargando categorías…"
-                            ) : catalogo.length === 0 ? (
+                            ) : catalogo !== null && catalogo.length === 0 ? (
                               <>
                                 Todavía no hay categorías propias.{" "}
                                 <Link to="/categorias" style={{ color: "inherit", textDecoration: "underline" }}>
@@ -1014,6 +1016,7 @@ export function Revision() {
                               "Elegí una de tus categorías o una general."
                             )}
                           </Field.HelperText>
+                          )}
                           {errores.categoria ? <Field.ErrorText color="estadoTexto.falla">{errores.categoria}</Field.ErrorText> : null}
                         </Field.Root>
                         <Field.Root invalid={Boolean(errores.periodo)} data-campo="periodo">

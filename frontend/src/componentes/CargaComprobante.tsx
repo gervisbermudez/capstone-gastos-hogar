@@ -1,7 +1,8 @@
-import { Alert, Box, Button, FileUpload, Flex, Image, Spinner, Stack, Text } from "@chakra-ui/react"
+import { Alert, Box, Button, FileUpload, Flex, Image, Stack, Text } from "@chakra-ui/react"
 import { useEffect, useRef, useState } from "react"
 import type { DocumentoBorrador } from "../api/tipos"
 import { toaster } from "../avisos"
+import { EsqueletoDocumento } from "./esqueleto"
 import {
   MENSAJE_TAMANO,
   TAMANO_MAXIMO_BYTES,
@@ -143,7 +144,7 @@ function VistaPrevia({ archivo, url, leyendo }: { archivo: File; url: string | n
         <Flex position="absolute" inset={0} align="center" justify="center" borderRadius="20px" overflow="hidden">
           <Box position="absolute" inset={0} bg="bg.panel" opacity={0.92} />
           <Stack position="relative" align="center" gap={3} px={6}>
-            <Spinner size="lg" color="fg" />
+            <EsqueletoDocumento />
             <Text color="fg" fontWeight="medium" textAlign="center">
               Leyendo el comprobante…
             </Text>

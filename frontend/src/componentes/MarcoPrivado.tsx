@@ -6,7 +6,7 @@ import { useSesion } from "../sesion"
 import { useTema } from "../temaModo"
 import { BarraLateral, type Seccion } from "./BarraLateral"
 import { Campana } from "./Campana"
-import { Cargando } from "./Cargando"
+import { EsqueletoMarco } from "./esqueleto"
 
 function seccionActiva(pathname: string): Seccion | null {
   if (pathname === "/") return "tablero"
@@ -34,7 +34,7 @@ export function MarcoPrivado() {
     setMenuAbierto(false)
   }, [pathname])
 
-  if (!listo) return <Cargando texto="Cargando la sesión" completo />
+  if (!listo) return <EsqueletoMarco pathname={pathname} />
   if (!token) return <Navigate to="/ingreso" replace />
 
   function alSalir() {

@@ -1,4 +1,5 @@
-import { Box, Flex, Grid, Heading, Skeleton, Stack, Text } from "@chakra-ui/react"
+import { Box, Flex, Grid, Heading, Stack, Text } from "@chakra-ui/react"
+import { EsqueletoCifras } from "../esqueleto"
 import { formatMonto } from "../../formato"
 
 const SOMBRA = "0 12px 40px rgba(28, 27, 23, 0.06)"
@@ -154,12 +155,7 @@ export function ResumenCifras({
         </Text>
       </Stack>
       {cargando ? (
-        <Grid templateColumns={columnas} gap={3}>
-          <Skeleton height="4.75rem" borderRadius="20px" />
-          <Skeleton height="4.75rem" borderRadius="20px" />
-          <Skeleton height="4.75rem" borderRadius="20px" />
-          <Skeleton height="4.75rem" borderRadius="20px" />
-        </Grid>
+        <EsqueletoCifras />
       ) : (
         <Grid templateColumns={columnas} gap={3}>
           <TarjetaCifra etiqueta="Total gastado" valor={textoTotal(total)} />

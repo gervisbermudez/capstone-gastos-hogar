@@ -18,6 +18,7 @@ import { useLocation, useNavigate } from "react-router"
 import { ErrorApi, cliente, esAbort } from "../api/cliente"
 import type { ModeloActivo, UsuarioActual } from "../api/tipos"
 import { toaster } from "../avisos"
+import { EsqueletoLineas } from "../componentes/esqueleto"
 import { useSesion } from "../sesion"
 import { useTema } from "../temaModo"
 
@@ -592,9 +593,7 @@ function BloqueModelo() {
             No se pudo leer el modelo.
           </Text>
         ) : activo === null ? (
-          <Text color="fg.muted" lineHeight="1.5">
-            Leyendo el modelo…
-          </Text>
+          <EsqueletoLineas etiqueta="Leyendo el modelo" anchos={["6.5rem", "11rem"]} />
         ) : activo.modelo === null ? (
           <Text color="fg" lineHeight="1.5">
             No hay un modelo configurado.

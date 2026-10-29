@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react"
-import { Alert, Button, CloseButton, Dialog, EmptyState, Flex, Heading, Pagination, Portal, Skeleton, Stack, Text } from "@chakra-ui/react"
+import { Alert, Button, CloseButton, Dialog, EmptyState, Flex, Heading, Pagination, Portal, Stack, Text } from "@chakra-ui/react"
 import { Link } from "react-router"
 import { ErrorApi, cliente } from "../api/cliente"
 import type { DocumentoListado } from "../api/tipos"
 import { toaster } from "../avisos"
+import { EsqueletoTabla, Hueso } from "../componentes/esqueleto"
 import { FiltrosRegistros } from "../componentes/FiltrosRegistros"
 import { TablaRegistros } from "../componentes/TablaRegistros"
 import { descargarRegistrosExcel } from "../datos/exportarRegistros"
@@ -245,6 +246,8 @@ export function Registros() {
           <Text fontSize="sm" fontWeight="medium" color="fg">
             {rangoInvalido ? fraseConteo(items.length, items.length) : fraseConteo(visibles.length, items.length)}
           </Text>
+        ) : cargaInicial ? (
+          <Hueso alto="0.85rem" ancho="9rem" />
         ) : null}
       </Stack>
 
@@ -253,6 +256,7 @@ export function Registros() {
         monedas={monedas}
         rangoInvalido={rangoInvalido}
         puedeDescargar={rangoInvalido === null && visibles.length > 0}
+        listaPendiente={cargaInicial}
         onCambio={setFiltro}
         onLimpiar={limpiar}
         onDescargar={() => descargarRegistrosExcel(visibles)}
@@ -278,7 +282,9 @@ export function Registros() {
         </Alert.Root>
       ) : null}
 
-      {cargaInicial ? <Skeleton height="16rem" borderRadius="20px" /> : null}
+      {cargaInicial ? (
+        <EsqueletoTabla etiqueta="Cargando comprobantes" filas={6} columnas={6} conAvatar />
+      ) : null}
 
       {error === null && !cargaInicial && items !== null && items.length === 0 ? (
         <EmptyState.Root>

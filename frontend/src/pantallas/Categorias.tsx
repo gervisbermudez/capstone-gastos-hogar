@@ -13,7 +13,6 @@ import {
   Input,
   Menu,
   Portal,
-  Skeleton,
   Stack,
   Table,
   Text,
@@ -21,6 +20,7 @@ import {
 } from "@chakra-ui/react"
 import { ErrorApi, cliente, esAbort } from "../api/cliente"
 import type { CategoriaCatalogo, CategoriaItem } from "../api/tipos"
+import { EsqueletoTabla, Hueso } from "../componentes/esqueleto"
 import { IconoPuntos } from "../componentes/revision/iconos"
 
 const SOMBRA = "0 12px 40px rgba(28, 27, 23, 0.06)"
@@ -574,7 +574,16 @@ export function Categorias() {
         <AlertaError texto={errorLista} onReintentar={reintentar} reintentoBloqueado={botonesBloqueados} />
       ) : null}
 
-      {cargaInicial ? <Skeleton height="16rem" borderRadius="20px" /> : null}
+      {cargaInicial ? (
+        <Stack gap={4}>
+          <Flex justify="space-between" align="baseline" gap={3}>
+            <Hueso alto="1.15rem" ancho="6rem" />
+            <Hueso alto="0.85rem" ancho="5rem" />
+          </Flex>
+          <Hueso alto="2.5rem" radio="16px" />
+          <EsqueletoTabla etiqueta="Cargando categorías" filas={5} columnas={3} />
+        </Stack>
+      ) : null}
 
       {listaVacia ? (
         <EmptyState.Root>

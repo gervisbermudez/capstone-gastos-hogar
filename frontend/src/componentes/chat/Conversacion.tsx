@@ -17,6 +17,7 @@ import { Link } from "react-router"
 import type { FotoAdjunto, MensajeGuardado } from "../../almacen"
 import { etiquetaCategoria, type DocumentoDetalle } from "../../api/tipos"
 import { fotoDesdeCita, textoVisible } from "../../chat/contexto"
+import { Hueso } from "../esqueleto"
 import { MenuConversacion } from "./ListaConversaciones"
 
 export const EJEMPLOS_CHAT = [
@@ -321,12 +322,14 @@ function ChipAdjunto({
   id,
   titulo,
   detalle,
+  cargando = false,
   onQuitar,
   fondo = "bg.subtle",
 }: {
   id: string
   titulo: string
   detalle: string
+  cargando?: boolean
   onQuitar?: () => void
   fondo?: "bg.subtle" | "bg.panel"
 }) {
@@ -341,7 +344,15 @@ function ChipAdjunto({
       pl={2}
       pr={onQuitar ? 1 : 2}
       py={1.5}
+      role={cargando ? "status" : undefined}
+      aria-busy={cargando || undefined}
+      aria-label={cargando ? "Abriendo el comprobante" : undefined}
     >
+      {cargando ? (
+        <Text as="span" srOnly>
+          Abriendo el comprobante
+        </Text>
+      ) : null}
       <Flex
         align="center"
         justify="center"
@@ -351,22 +362,31 @@ function ChipAdjunto({
         bg={fondo === "bg.panel" ? "bg.subtle" : "bg.panel"}
         color="fg"
       >
-        <IconoComprobante />
+        {cargando ? <Hueso alto="18px" ancho="18px" radio="4px" /> : <IconoComprobante />}
       </Flex>
-      <Stack gap={0} minW={0} py={0.5}>
-        <Link
-          to={`/documentos/${encodeURIComponent(id)}`}
-          style={{ minWidth: 0, color: "inherit", textDecoration: "none" }}
-        >
-          <Text fontSize="sm" fontWeight="medium" color="fg" truncate>
-            {titulo}
-          </Text>
-        </Link>
-        {detalle ? (
-          <Text fontSize="xs" color="fg.muted" truncate>
-            {detalle}
-          </Text>
-        ) : null}
+      <Stack gap={cargando ? 1.5 : 0} minW={0} py={0.5} flex="1">
+        {cargando ? (
+          <>
+            <Hueso alto="0.75rem" ancho="7rem" />
+            <Hueso alto="0.6rem" ancho="5rem" />
+          </>
+        ) : (
+          <>
+            <Link
+              to={`/documentos/${encodeURIComponent(id)}`}
+              style={{ minWidth: 0, color: "inherit", textDecoration: "none" }}
+            >
+              <Text fontSize="sm" fontWeight="medium" color="fg" truncate>
+                {titulo}
+              </Text>
+            </Link>
+            {detalle ? (
+              <Text fontSize="xs" color="fg.muted" truncate>
+                {detalle}
+              </Text>
+            ) : null}
+          </>
+        )}
       </Stack>
       {onQuitar ? (
         <Button
@@ -646,7 +666,13 @@ export function Compositor({
             css={{ "&:focus-within": { borderColor: "var(--chakra-colors-marca-sol)" } }}
           >
             {adjunto && resumen && onQuitarAdjunto ? (
-              <ChipAdjunto id={adjunto.id} titulo={resumen.titulo} detalle={resumen.detalle} onQuitar={onQuitarAdjunto} />
+              <ChipAdjunto
+                id={adjunto.id}
+                titulo={resumen.titulo}
+                detalle={resumen.detalle}
+                cargando={adjunto.cargando && !adjunto.documento}
+                onQuitar={onQuitarAdjunto}
+              />
             ) : null}
             <Textarea
               rows={2}

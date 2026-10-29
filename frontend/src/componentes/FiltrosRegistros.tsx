@@ -13,6 +13,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react"
 import { cliente, esAbort } from "../api/cliente"
 import type { CategoriaItem } from "../api/tipos"
 import { opcionActual, opcionesDelCatalogo, opcionesGenerales } from "../categorias"
+import { EsqueletoCampo } from "./esqueleto"
 import { FILTROS_INICIALES, type FiltrosRegistros } from "../datos/filtrarRegistros"
 
 type Props = {
@@ -20,6 +21,7 @@ type Props = {
   monedas: string[]
   rangoInvalido: string | null
   puedeDescargar: boolean
+  listaPendiente?: boolean
   onCambio: <K extends keyof FiltrosRegistros>(clave: K, valor: FiltrosRegistros[K]) => void
   onLimpiar: () => void
   onDescargar: () => void
@@ -137,12 +139,13 @@ export function FiltrosRegistros({
   monedas,
   rangoInvalido,
   puedeDescargar,
+  listaPendiente = false,
   onCambio,
   onLimpiar,
   onDescargar,
 }: Props) {
   const [extrasAbiertos, setExtrasAbiertos] = useState(false)
-  const [catalogo, setCatalogo] = useState<CategoriaItem[]>([])
+  const [catalogo, setCatalogo] = useState<CategoriaItem[] | null>(null)
   const monedasVisibles = listaMonedas(monedas, filtros.moneda)
   const cantidadExtras = extrasActivos(filtros)
   const mostrarLimpiar = hayAlgunFiltro(filtros)
@@ -165,7 +168,7 @@ export function FiltrosRegistros({
   }, [])
 
   const opcionesCategoria = useMemo(() => {
-    const propias = opcionesDelCatalogo(catalogo)
+    const propias = opcionesDelCatalogo(catalogo ?? [])
     const ocupados = new Set(propias.map((opcion) => opcion.value))
     const lista = [
       { value: "todas", label: "Todas" },
@@ -290,27 +293,31 @@ export function FiltrosRegistros({
           </Checkbox.Root>
           <Flex direction={{ base: "column", md: "row" }} flexWrap={{ md: "wrap" }} gap={3} align={{ md: "flex-end" }}>
           <Campo etiqueta="Categoría">
-            <NativeSelect.Root w="100%">
-              <NativeSelect.Field
-                bg="bg.panel"
-                color="fg"
-                value={filtros.categoria}
-                onChange={(event) => {
-                  const elegido = opcionElegida(
-                    event.target.value,
-                    opcionesCategoria.map((opcion) => opcion.value),
-                  )
-                  if (elegido !== null) onCambio("categoria", elegido)
-                }}
-              >
-                {opcionesCategoria.map((opcion) => (
-                  <option key={opcion.value} value={opcion.value}>
-                    {opcion.label}
-                  </option>
-                ))}
-              </NativeSelect.Field>
-              <NativeSelect.Indicator />
-            </NativeSelect.Root>
+            {catalogo === null ? (
+              <EsqueletoCampo etiqueta="Cargando categorías" />
+            ) : (
+              <NativeSelect.Root w="100%">
+                <NativeSelect.Field
+                  bg="bg.panel"
+                  color="fg"
+                  value={filtros.categoria}
+                  onChange={(event) => {
+                    const elegido = opcionElegida(
+                      event.target.value,
+                      opcionesCategoria.map((opcion) => opcion.value),
+                    )
+                    if (elegido !== null) onCambio("categoria", elegido)
+                  }}
+                >
+                  {opcionesCategoria.map((opcion) => (
+                    <option key={opcion.value} value={opcion.value}>
+                      {opcion.label}
+                    </option>
+                  ))}
+                </NativeSelect.Field>
+                <NativeSelect.Indicator />
+              </NativeSelect.Root>
+            )}
           </Campo>
           <CampoOpcion
             etiqueta="Estado"
@@ -320,22 +327,26 @@ export function FiltrosRegistros({
             onCambio={(valor) => onCambio("estado", valor)}
           />
           <Campo etiqueta="Moneda">
-            <NativeSelect.Root w="100%">
-              <NativeSelect.Field
-                bg="bg.panel"
-                color="fg"
-                value={filtros.moneda}
-                onChange={(event) => onCambio("moneda", event.target.value)}
-              >
-                <option value="">Todas</option>
-                {monedasVisibles.map((moneda) => (
-                  <option key={moneda} value={moneda}>
-                    {moneda}
-                  </option>
-                ))}
-              </NativeSelect.Field>
-              <NativeSelect.Indicator />
-            </NativeSelect.Root>
+            {listaPendiente ? (
+              <EsqueletoCampo etiqueta="Cargando monedas" />
+            ) : (
+              <NativeSelect.Root w="100%">
+                <NativeSelect.Field
+                  bg="bg.panel"
+                  color="fg"
+                  value={filtros.moneda}
+                  onChange={(event) => onCambio("moneda", event.target.value)}
+                >
+                  <option value="">Todas</option>
+                  {monedasVisibles.map((moneda) => (
+                    <option key={moneda} value={moneda}>
+                      {moneda}
+                    </option>
+                  ))}
+                </NativeSelect.Field>
+                <NativeSelect.Indicator />
+              </NativeSelect.Root>
+            )}
           </Campo>
           </Flex>
         </Stack>

@@ -2,7 +2,7 @@ import { Alert, Button, Card, Center, Field, Heading, Input, Stack, Text } from 
 import { useEffect, useRef, useState, type FormEvent } from "react"
 import { Link, Navigate } from "react-router"
 import { ErrorApi } from "../api/cliente"
-import { Cargando } from "../componentes/Cargando"
+import { EsqueletoMarco } from "../componentes/esqueleto"
 import { Logotipo } from "../componentes/Logotipo"
 import { useSesion } from "../sesion"
 
@@ -29,7 +29,7 @@ export function FormularioAcceso({ titulo, descripcion, enviarEtiqueta, alterno,
     }
   }, [])
 
-  if (!listo) return <Cargando texto="Cargando la sesión" completo />
+  if (!listo) return <EsqueletoMarco pathname="/" />
   if (token) return <Navigate to="/" replace />
 
   async function alEnviar(event: FormEvent) {

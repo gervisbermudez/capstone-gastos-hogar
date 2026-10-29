@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react"
-import { Button, Card, CloseButton, Dialog, Flex, Portal, Skeleton, Stack, Text } from "@chakra-ui/react"
+import { Button, Card, CloseButton, Dialog, Flex, Portal, Stack, Text } from "@chakra-ui/react"
 import { Link } from "react-router"
 import { etiquetaCategoria, type CamposDocumento } from "../../api/tipos"
+import { EsqueletoBorradores } from "../esqueleto"
 import { formatMonto } from "../../formato"
 
 const SOMBRA = "0 12px 40px rgba(28, 27, 23, 0.06)"
@@ -86,13 +87,25 @@ export function PanelBorradores({
         <Card.Root
           bg="bg.panel"
           borderWidth="0"
+          borderLeftWidth="3px"
+          borderLeftStyle="solid"
+          borderLeftColor="marca.sol"
           borderRadius="20px"
           boxShadow={SOMBRA}
-          aria-busy
-          _dark={{ borderWidth: "1px", borderColor: "borde" }}
+          _dark={{
+            borderWidth: "1px",
+            borderColor: "borde",
+            borderLeftWidth: "3px",
+            borderLeftColor: "marca.sol",
+          }}
         >
+          <Card.Header>
+            <Card.Title as="h2" fontWeight="medium" color="fg" letterSpacing="-0.03em">
+              Borradores por revisar
+            </Card.Title>
+          </Card.Header>
           <Card.Body>
-            <Skeleton height="4.5rem" borderRadius="16px" />
+            <EsqueletoBorradores />
           </Card.Body>
         </Card.Root>
         {dialogo}

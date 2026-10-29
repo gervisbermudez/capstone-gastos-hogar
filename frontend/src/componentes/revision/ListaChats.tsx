@@ -1,12 +1,12 @@
 import { Button, Stack, Text } from "@chakra-ui/react"
 import { type JSX } from "react"
+import { EsqueletoFilas } from "../esqueleto"
 import { IconoChat } from "./iconos"
 
 export type ChatCitado = { threadId: string; titulo: string; cuando: string }
 
 function mensajeDe(chats: ChatCitado[], cargando: boolean, falla: boolean): string | null {
   if (falla) return "No se pudieron cargar los chats."
-  if (cargando && chats.length === 0) return "Buscando chats…"
   if (!cargando && chats.length === 0) return "Ningún chat menciona este comprobante."
   return null
 }
@@ -28,6 +28,7 @@ export function ListaChats({
 
   return (
     <Stack gap={3} align="stretch">
+      {cargando && chats.length === 0 && !falla ? <EsqueletoFilas etiqueta="Buscando chats" filas={2} /> : null}
       {mensaje ? (
         <Text fontSize="sm" color="fg.muted">
           {mensaje}

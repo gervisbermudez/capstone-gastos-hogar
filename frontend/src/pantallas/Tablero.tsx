@@ -1,10 +1,11 @@
-import { Alert, Button, Card, EmptyState, Flex, Grid, Heading, Skeleton, Stack, Text } from "@chakra-ui/react"
+import { Alert, Button, Card, EmptyState, Flex, Grid, Heading, Stack, Text } from "@chakra-ui/react"
 import type { ReactNode } from "react"
 import { Link } from "react-router"
 import { GraficoCategorias, GraficoMeses } from "../componentes/GraficosResumen"
 import { ListaConfirmados } from "../componentes/tablero/ListaConfirmados"
 import { PanelBorradores } from "../componentes/tablero/PanelBorradores"
 import { ResumenCifras, sumarMontos } from "../componentes/tablero/ResumenCifras"
+import { EsqueletoGrafico, EsqueletoTabla } from "../componentes/esqueleto"
 import { useTablero } from "../datos/useTablero"
 import { useSesion } from "../sesion"
 
@@ -146,8 +147,12 @@ export function Tablero() {
         <Grid templateColumns={{ base: "1fr", lg: "repeat(2, minmax(0, 1fr))" }} gap={{ base: 4, lg: 5 }}>
           {cargandoResumen ? (
             <>
-              <Skeleton height="16rem" borderRadius="20px" />
-              <Skeleton height="16rem" borderRadius="20px" />
+              <Tarjeta titulo="Total por mes">
+                <EsqueletoGrafico variante="barras" />
+              </Tarjeta>
+              <Tarjeta titulo="Total por categoría">
+                <EsqueletoGrafico variante="torta" />
+              </Tarjeta>
             </>
           ) : resumenVisible ? (
             <>
@@ -168,7 +173,7 @@ export function Tablero() {
             Confirmados en el período
           </Heading>
           {cargandoResumen ? (
-            <Skeleton height="6rem" borderRadius="20px" />
+            <EsqueletoTabla etiqueta="Cargando comprobantes" filas={4} columnas={5} />
           ) : resumenVisible && resumenVisible.comprobantes.length > 0 ? (
             <ListaConfirmados items={resumenVisible.comprobantes} accion="Ver" />
           ) : (

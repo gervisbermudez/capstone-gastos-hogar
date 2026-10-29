@@ -1,7 +1,8 @@
-import { Alert, Box, Button, Input, Menu, Portal, Skeleton, Stack, Text } from "@chakra-ui/react"
+import { Alert, Box, Button, Input, Menu, Portal, Stack, Text } from "@chakra-ui/react"
 import { useState, type JSX } from "react"
 import type { Hilo } from "../../api/tipos"
 import { agruparHilos } from "../../chat/historial"
+import { EsqueletoFilas } from "../esqueleto"
 
 export type VistaConversaciones = "activas" | "archivadas"
 
@@ -150,14 +151,7 @@ export function ListaConversaciones({
       </>
     )
   } else if (hilos === null) {
-    cuerpo = (
-      <Stack gap={2}>
-        <Skeleton height="2.75rem" borderRadius="16px" />
-        <Skeleton height="2.75rem" borderRadius="16px" />
-        <Skeleton height="2.75rem" borderRadius="16px" />
-        <Skeleton height="2.75rem" borderRadius="16px" />
-      </Stack>
-    )
+    cuerpo = <EsqueletoFilas etiqueta="Cargando conversaciones" filas={4} />
   } else if (hilos.length === 0) {
     cuerpo = (
       <Text fontSize="sm" color="fg.muted" px={2}>
