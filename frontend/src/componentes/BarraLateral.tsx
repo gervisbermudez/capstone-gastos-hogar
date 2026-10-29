@@ -1,7 +1,6 @@
-import { Button, Flex, Stack, Switch, Text } from "@chakra-ui/react"
+import { Button, Flex, Menu, Portal, Stack, Text } from "@chakra-ui/react"
 import { type ReactNode } from "react"
 import { Link } from "react-router"
-import { useTema } from "../temaModo"
 import { Logotipo } from "./Logotipo"
 
 export type Seccion = "tablero" | "registros" | "categorias" | "cargar" | "chat" | "opciones"
@@ -105,18 +104,37 @@ const SECCIONES: { id: Seccion; to: string; etiqueta: string; Icono: () => React
   { id: "categorias", to: "/categorias", etiqueta: "Categorías", Icono: IconoCategorias },
   { id: "cargar", to: "/cargar", etiqueta: "Cargar", Icono: IconoCargar },
   { id: "chat", to: "/chat", etiqueta: "Chat", Icono: IconoChat },
-  { id: "opciones", to: "/opciones", etiqueta: "Opciones", Icono: IconoOpciones },
 ]
+
+const ENLACES_OPCIONES = [
+  { value: "cuenta", to: "/opciones#cuenta", etiqueta: "Cuenta" },
+  { value: "apariencia", to: "/opciones#apariencia", etiqueta: "Apariencia" },
+  { value: "modelo", to: "/opciones#modelo", etiqueta: "Modelo" },
+  { value: "sesion", to: "/opciones#sesion", etiqueta: "Sesión" },
+] as const
+
+const itemMenu = {
+  px: 3,
+  py: 2,
+  mx: 1,
+  borderRadius: "12px",
+  cursor: "pointer",
+  color: "fg",
+  textDecoration: "none",
+  _highlighted: { bg: "bg.subtle" },
+} as const
 
 type Props = {
   activo: Seccion | null
   email: string | null
+  alias: string | null
   onSalir: () => void
   onNavigate?: () => void
 }
 
-export function BarraLateral({ activo, email, onSalir, onNavigate }: Props) {
-  const { oscuro, alternar } = useTema()
+export function BarraLateral({ activo, email, alias, onSalir, onNavigate }: Props) {
+  const etiquetaUsuario = alias?.trim() || email
+  const enOpciones = activo === "opciones"
 
   return (
     <Flex direction="column" h="100%" minH={0} flex="1" overflow="auto" px={4} py={6} gap={8}>
@@ -158,43 +176,62 @@ export function BarraLateral({ activo, email, onSalir, onNavigate }: Props) {
         </Stack>
       </Stack>
       <Stack gap={3} mt="auto">
-        <Switch.Root
-          size="sm"
-          checked={oscuro}
-          onCheckedChange={(detalle) => {
-            if (detalle.checked !== oscuro) alternar()
-          }}
-        >
-          <Switch.HiddenInput />
-          <Switch.Control bg="bg.hover" _checked={{ bg: "marca.sol" }}>
-            <Switch.Thumb bg="fg" _checked={{ bg: "marca.carbon" }} />
-          </Switch.Control>
-          <Switch.Label color="fg" fontSize="sm">
-            Oscuro
-          </Switch.Label>
-        </Switch.Root>
-        {email ? (
-          <Text
-            asChild
-            display="block"
-            minW={0}
-            maxW="100%"
-            fontSize="sm"
-            color="fg.muted"
-            bg="bg.hover"
-            borderRadius="full"
-            px={3}
-            py={2}
-            overflowWrap="anywhere"
-            textDecoration="none"
-            _hover={{ color: "fg", textDecoration: "none" }}
-            _focusVisible={{ outline: "2px solid", outlineColor: "marca.sol", outlineOffset: "2px" }}
-          >
-            <Link to="/opciones" onClick={onNavigate} aria-label={`${email}, opciones`}>
-              {email}
-            </Link>
-          </Text>
-        ) : null}
+        <Flex align="center" gap={2} minW={0} w="100%">
+          {etiquetaUsuario ? (
+            <Text flex="1" minW={0} fontSize="sm" color="fg.muted" overflowWrap="anywhere">
+              {etiquetaUsuario}
+            </Text>
+          ) : null}
+          <Menu.Root positioning={{ placement: "right-start" }}>
+            <Menu.Trigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                aria-label="Opciones"
+                aria-current={enOpciones ? "page" : undefined}
+                flexShrink={0}
+                borderRadius="full"
+                px={0}
+                minW={10}
+                color={enOpciones ? "fg.sobreSolido" : "fg"}
+                bg={enOpciones ? "fg" : "transparent"}
+                _hover={
+                  enOpciones
+                    ? { bg: "fg", color: "fg.sobreSolido" }
+                    : { bg: "bg.hover", color: "fg" }
+                }
+                _expanded={
+                  enOpciones
+                    ? { bg: "fg", color: "fg.sobreSolido" }
+                    : { bg: "bg.hover", color: "fg" }
+                }
+              >
+                <IconoOpciones />
+              </Button>
+            </Menu.Trigger>
+            <Portal>
+              <Menu.Positioner zIndex={2000}>
+                <Menu.Content
+                  bg="bg.panel"
+                  borderWidth="0"
+                  borderRadius="16px"
+                  boxShadow="0 12px 40px rgba(28, 27, 23, 0.06)"
+                  minW="11rem"
+                  py={1}
+                  _dark={{ borderWidth: "1px", borderColor: "borde" }}
+                >
+                  {ENLACES_OPCIONES.map(({ value, to, etiqueta }) => (
+                    <Menu.Item key={value} value={value} asChild css={itemMenu}>
+                      <Link to={to} onClick={onNavigate}>
+                        {etiqueta}
+                      </Link>
+                    </Menu.Item>
+                  ))}
+                </Menu.Content>
+              </Menu.Positioner>
+            </Portal>
+          </Menu.Root>
+        </Flex>
         <Button
           type="button"
           variant="ghost"

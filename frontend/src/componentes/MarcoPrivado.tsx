@@ -1,8 +1,9 @@
-import { Box, Button, CloseButton, Drawer, Flex, Portal, useMediaQuery } from "@chakra-ui/react"
+import { Box, Button, CloseButton, Drawer, Flex, Portal, Switch, useMediaQuery } from "@chakra-ui/react"
 import { useEffect, useState } from "react"
 import { Navigate, Outlet, useLocation, useNavigate } from "react-router"
 import { ProveedorCanal } from "../canal"
 import { useSesion } from "../sesion"
+import { useTema } from "../temaModo"
 import { BarraLateral, type Seccion } from "./BarraLateral"
 import { Campana } from "./Campana"
 import { Cargando } from "./Cargando"
@@ -19,6 +20,7 @@ function seccionActiva(pathname: string): Seccion | null {
 
 export function MarcoPrivado() {
   const { token, listo, email, salir } = useSesion()
+  const { oscuro, alternar } = useTema()
   const navigate = useNavigate()
   const { pathname } = useLocation()
   const [menuAbierto, setMenuAbierto] = useState(false)
@@ -67,7 +69,7 @@ export function MarcoPrivado() {
             minH={0}
             bg="bg.subtle"
           >
-            <BarraLateral activo={seccionActiva(pathname)} email={email} onSalir={alSalir} />
+            <BarraLateral activo={seccionActiva(pathname)} email={email} alias={null} onSalir={alSalir} />
           </Box>
           <ProveedorCanal>
             <Flex direction="column" flex="1" minW={0} minH={0}>
@@ -95,7 +97,22 @@ export function MarcoPrivado() {
                   </Drawer.Trigger>
                 </Box>
                 <Box display={{ base: "none", md: "block" }} />
-                <Campana />
+                <Flex align="center" gap={2}>
+                  <Switch.Root
+                    size="sm"
+                    checked={oscuro}
+                    aria-label={oscuro ? "Usar tema claro" : "Usar tema oscuro"}
+                    onCheckedChange={(detalle) => {
+                      if (detalle.checked !== oscuro) alternar()
+                    }}
+                  >
+                    <Switch.HiddenInput />
+                    <Switch.Control bg="bg.hover" _checked={{ bg: "marca.sol" }}>
+                      <Switch.Thumb bg="fg" _checked={{ bg: "marca.carbon" }} />
+                    </Switch.Control>
+                  </Switch.Root>
+                  <Campana />
+                </Flex>
               </Flex>
               <Box
                 as="main"
@@ -131,6 +148,7 @@ export function MarcoPrivado() {
                 <BarraLateral
                   activo={seccionActiva(pathname)}
                   email={email}
+                  alias={null}
                   onSalir={alSalir}
                   onNavigate={() => setMenuAbierto(false)}
                 />
