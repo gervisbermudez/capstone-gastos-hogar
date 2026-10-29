@@ -1,6 +1,6 @@
-# Asistente de gastos del hogar
+# Capstone
 
-Sistema de la entrega final: una persona carga comprobantes, confirma los montos y pregunta por sus gastos. Otra persona no ve esos datos. El contrato está en [`FUENTE-DE-LA-VERDAD.md`](FUENTE-DE-LA-VERDAD.md). Este archivo solo dice cómo levantar y probar. No lo reemplaza.
+Asistente de gastos del hogar. Una persona carga comprobantes, confirma los montos y pregunta por sus gastos. Otra persona no ve esos datos. El contrato está en [`FUENTE-DE-LA-VERDAD.md`](FUENTE-DE-LA-VERDAD.md). Este archivo solo dice cómo levantar y probar. No lo reemplaza.
 
 Los totales salen de SQL. El texto de las facturas sale del índice. No se mezclan.
 
@@ -109,6 +109,14 @@ graph LR
 
 ## Estado de las cinco trazas
 
-`./run.sh` construye y levanta Redis, Phoenix, la API y el frontend sin claves. En la corrida de esta máquina el comando terminó bien: `GET /health` respondió `{"status":"ok"}` y el frontend respondió 200. Como `pre-entrega-7-api` ya usaba el 6379, el 6006 y el 4317, Redis quedó publicado en `localhost:6380` y Phoenix en http://localhost:6007. Esos contenedores no se apagaron.
+El stack está arriba: API en http://localhost:8000 (`GET /health` → `{"status":"ok"}`), Phoenix en http://localhost:6006 (proyecto `gastos-hogar`), Redis en `localhost:6379` y el frontend en http://localhost:5173. `api/.env` existe.
 
-No existe `capstone/api/.env`. No se creó uno con claves y no se copió el de la pre-entrega. `carga.py` salió con código 2: la API está viva, pero faltan `JWT_SECRET`, la clave del proveedor y el nombre del modelo (`OPENAI_API_KEY` y `OPENAI_MODEL`, o `GOOGLE_API_KEY` y `GEMINI_MODEL` si `LLM_PROVIDER=gemini`). Sin eso no hay registro, no hay cinco jobs y Phoenix no tiene spans de supervisor, investigador ni analista, ni costo, ni latencia de esta entrega. `screenshots/` no tiene capturas. Las de `api/screenshots/` son de TechCorp y no forman parte de esta evidencia.
+Cinco `POST /tasks` seguidos, con los comprobantes ya confirmados, terminaron `DONE`:
+
+1. Ada, cuánto pagó de expensas en marzo.
+2. Ada, luz de enero contra febrero.
+3. Ada, qué dice el alquiler sobre el ajuste.
+4. Bea, cuánto pagó de expensas en marzo.
+5. Bea, el texto del alquiler (no aparece el ajuste de Ada).
+
+En Phoenix, el proyecto `gastos-hogar` tiene spans `supervisor`, `analista`, `investigador` y `ejecutar_tarea`. Las llamadas al modelo quedan como `ChatConCanal`. Las capturas de `screenshots/` son de una corrida anterior, cuando la extracción todavía fallaba. Las de `api/screenshots/` son de TechCorp y no son evidencia de este sistema.
