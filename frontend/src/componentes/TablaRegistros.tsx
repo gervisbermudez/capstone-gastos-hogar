@@ -110,34 +110,6 @@ function nodoEstado(estado: EstadoDocumento) {
   )
 }
 
-function nodoAnulado(item: DocumentoListado) {
-  if (item.estado === "borrador") return "—"
-  if (item.anulado === true) {
-    return (
-      <Pastilla fondo="estado.fallaFondo" color="estado.falla">
-        Anulado
-      </Pastilla>
-    )
-  }
-  return (
-    <Text as="span" color="fg.muted">
-      Vigente
-    </Text>
-  )
-}
-
-function textoIndexado(item: DocumentoListado): string {
-  if (item.estado === "borrador" || item.indexado === null || item.indexado === undefined) return "—"
-  switch (item.indexado) {
-    case "ok":
-      return "Se puede buscar"
-    case "error":
-      return "No se pudo"
-    case "omitido":
-      return "Sin texto"
-  }
-}
-
 function Proveedor({ campos }: { campos: CamposDocumento }) {
   return (
     <Flex align="center" gap={2.5} minW={0} flex="1">
@@ -317,20 +289,6 @@ function TarjetaRegistro({
           <Text fontVariantNumeric="tabular-nums" fontWeight="medium">
             {formatMonto(item.campos.monto, item.campos.moneda)}
           </Text>
-          <Flex gap={4} wrap="wrap">
-            <Flex gap={2} align="center">
-              <Text fontSize="sm" color="fg.muted">
-                Anulado
-              </Text>
-              {nodoAnulado(item)}
-            </Flex>
-            <Flex gap={2} align="center">
-              <Text fontSize="sm" color="fg.muted">
-                Texto
-              </Text>
-              <Text fontSize="sm">{textoIndexado(item)}</Text>
-            </Flex>
-          </Flex>
         </Stack>
       </Card.Body>
     </Card.Root>
@@ -368,8 +326,6 @@ export function TablaRegistros({ items, bloqueadoId, onAnular, onEliminar }: Pro
                 <Encabezado>Número</Encabezado>
                 <Encabezado>Monto</Encabezado>
                 <Encabezado>Estado</Encabezado>
-                <Encabezado>Anulado</Encabezado>
-                <Encabezado>Texto</Encabezado>
                 <Encabezado>
                   <Text as="span" srOnly>
                     Acciones
@@ -397,8 +353,6 @@ export function TablaRegistros({ items, bloqueadoId, onAnular, onEliminar }: Pro
                     </Text>
                   </Celda>
                   <Celda>{nodoEstado(item.estado)}</Celda>
-                  <Celda>{nodoAnulado(item)}</Celda>
-                  <Celda>{textoIndexado(item)}</Celda>
                   <Celda>
                     <MenuRegistro
                       item={item}
