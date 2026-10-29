@@ -3,6 +3,7 @@ import { guardarResumen, generacionResumenes, leerResumenGuardado } from "../api
 import { ErrorApi, cliente, esAbort } from "../api/cliente"
 import { etiquetaCategoria, type DocumentoConfirmado, type DocumentoListado, type Resumen } from "../api/tipos"
 import { toaster } from "../avisos"
+import { suscribirEventos } from "../canalBus"
 import { suscribirBorradorListo } from "../cargaActiva"
 import { formatPeriodo } from "../formato"
 import { sumarMontos } from "../componentes/tablero/ResumenCifras"
@@ -269,7 +270,17 @@ export function useTablero(): DatosTablero {
     return () => ctrl.abort()
   }, [intento])
 
-  useEffect(() => suscribirBorradorListo(() => setIntento((valor) => valor + 1)), [])
+  useEffect(() => {
+    const soltarListo = suscribirBorradorListo(() => setIntento((valor) => valor + 1))
+    const soltarAviso = suscribirEventos((evento) => {
+      if (evento.tipo !== "comprobante.agregado") return
+      setIntento((valor) => valor + 1)
+    })
+    return () => {
+      soltarListo()
+      soltarAviso()
+    }
+  }, [])
 
   useEffect(() => {
     const ctrl = new AbortController()

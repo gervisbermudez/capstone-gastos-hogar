@@ -39,6 +39,7 @@ function tono(item: Notificacion): "ok" | "aviso" | "falla" | "neutro" {
     return "ok"
   }
   if (item.tipo === "carga.estado") return etiqueta === "Volver a cargar" ? "falla" : "ok"
+  if (item.tipo === "comprobante.agregado") return "aviso"
   return "neutro"
 }
 

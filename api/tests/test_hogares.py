@@ -17,7 +17,7 @@ sys.path.insert(0, str(RAIZ))
 
 from app import db, rag, repositorio
 from app.extraccion import ArchivoRechazado
-from app.ingesta import descartar
+from app.ingesta import avisar_borrador_de_asociado, descartar
 from app.rutas_auth import router as router_auth
 from app.rutas_hogares import router as router_hogares
 
@@ -678,6 +678,117 @@ def test_la_salida_avisa_al_administrador(tmp_path, monkeypatch) -> None:
             assert de_grace["items"][0]["titulo"] == "Te sumaron a un hogar"
 
         asyncio.run(bandeja())
+
+
+def test_el_borrador_de_un_asociado_avisa_al_administrador(tmp_path, monkeypatch) -> None:
+    _entorno(monkeypatch, tmp_path)
+    redis = _RedisMudo()
+    with _cliente() as cliente:
+        ada = _registrar(cliente, "ada@example.com")
+        grace = _registrar(cliente, "grace@example.com")
+        headers_ada = _bearer(ada["access_token"])
+        headers_grace = _bearer(grace["access_token"])
+        nombre = cliente.post(
+            "/auth/nombre",
+            json={"nombre": "Grace Hopper"},
+            headers=headers_grace,
+        )
+        assert nombre.status_code == 200
+        hogar_id = _mi_hogar(_listar(cliente, headers_ada))["id"]
+        alta = cliente.post(
+            f"/hogares/{hogar_id}/miembros",
+            json={"email": "grace@example.com"},
+            headers=headers_ada,
+        )
+        assert alta.status_code == 201
+
+        async def dejar_borrador(proveedor: str | None) -> str:
+            return await repositorio.guardar_borrador(
+                user_id=grace["user_id"],
+                hogar_id=hogar_id,
+                texto="factura",
+                campos={"proveedor": proveedor} if proveedor else {},
+                advertencias=[],
+            )
+
+        async def avisar(documento_id: str, proveedor: str | None) -> None:
+            await avisar_borrador_de_asociado(
+                redis,
+                actor_id=grace["user_id"],
+                hogar_id=hogar_id,
+                documento_id=documento_id,
+                proveedor=proveedor,
+            )
+
+        documento_id = asyncio.run(dejar_borrador("Edenor"))
+        asyncio.run(avisar(documento_id, "Edenor"))
+        asyncio.run(avisar(documento_id, "Edenor"))
+
+        assert len(redis.mensajes) == 2
+        canal, crudo = redis.mensajes[0]
+        assert ada["user_id"] in canal
+        assert grace["user_id"] not in canal
+        evento = json.loads(crudo)
+        assert evento["tipo"] == "comprobante.agregado"
+        assert evento["recurso"] == {"clase": "documento", "id": documento_id}
+        assert evento["payload"] == {
+            "documento_id": documento_id,
+            "hogar_id": hogar_id,
+        }
+        aviso = evento["notificacion"]
+        assert aviso["titulo"] == "Comprobante nuevo"
+        assert aviso["cuerpo"] == "Grace Hopper agregó un comprobante de Edenor en Mi hogar."
+        assert aviso["accion"] == {
+            "etiqueta": "Revisar",
+            "ruta": f"/documentos/{documento_id}",
+        }
+        repetido = json.loads(redis.mensajes[1][1])["notificacion"]
+        assert repetido["id"] == aviso["id"]
+
+        async def bandeja() -> None:
+            de_ada = await repositorio.listar_notificaciones(user_id=ada["user_id"])
+            assert de_ada["no_leidas"] == 1
+            assert de_ada["items"][0]["cuerpo"] == aviso["cuerpo"]
+            de_grace = await repositorio.listar_notificaciones(user_id=grace["user_id"])
+            assert de_grace["items"] == []
+
+        asyncio.run(bandeja())
+
+        asyncio.run(repositorio.actualizar_nombre(user_id=grace["user_id"], nombre=None))
+        otro = asyncio.run(dejar_borrador(None))
+        asyncio.run(avisar(otro, None))
+        sin_alias = json.loads(redis.mensajes[2][1])["notificacion"]
+        assert sin_alias["cuerpo"] == "grace@example.com agregó un comprobante en Mi hogar."
+
+        async def el_admin_no_se_avisa() -> None:
+            antes = len(redis.mensajes)
+            await avisar_borrador_de_asociado(
+                redis,
+                actor_id=ada["user_id"],
+                hogar_id=hogar_id,
+                documento_id=documento_id,
+                proveedor="Edenor",
+            )
+            assert len(redis.mensajes) == antes
+
+        asyncio.run(el_admin_no_se_avisa())
+
+    async def rompe(_user_id: str, _hogar_id: str) -> str:
+        raise RuntimeError("db")
+
+    monkeypatch.setattr("app.ingesta.membresia", rompe)
+
+    async def no_rompe() -> None:
+        await avisar_borrador_de_asociado(
+            redis,
+            actor_id=grace["user_id"],
+            hogar_id=hogar_id,
+            documento_id="doc-roto",
+            proveedor="Edenor",
+        )
+
+    asyncio.run(no_rompe())
+    assert len(redis.mensajes) == 3
 
 
 def test_la_salida_sigue_si_redis_no_publica(tmp_path, monkeypatch) -> None:

@@ -1112,3 +1112,66 @@ def test_confirmar_conserva_el_mensaje_de_categoria(monkeypatch) -> None:
         assert exc.value.detail == "categoria inválida"
 
     asyncio.run(caso())
+
+
+def test_la_carga_de_un_asociado_avisa_al_administrador(cuentas, doble, monkeypatch):
+    llamados = []
+
+    async def espia(_redis, *, actor_id, hogar_id, documento_id, proveedor=None):
+        llamados.append(
+            {
+                "actor_id": actor_id,
+                "hogar_id": hogar_id,
+                "documento_id": documento_id,
+                "proveedor": proveedor,
+            }
+        )
+
+    monkeypatch.setattr("app.ingesta.avisar_borrador_de_asociado", espia)
+
+    async def preparar() -> str:
+        hogares = await REPO.listar_hogares(cuentas["ada"])
+        hogar_id = next(item["id"] for item in hogares if item["nombre"] == "Mi hogar")
+        await REPO.agregar_miembro(
+            user_id=cuentas["ada"],
+            hogar_id=hogar_id,
+            email="grace@example.com",
+        )
+        return hogar_id
+
+    hogar_id = asyncio.run(preparar())
+    aplicacion = FastAPI()
+    aplicacion.include_router(router)
+    aplicacion.state.redis = RedisMemoria()
+    aplicacion.dependency_overrides[usuario_actual] = lambda: {
+        "user_id": cuentas["grace"],
+        "email": "grace@example.com",
+    }
+    with TestClient(aplicacion) as grace:
+        respuesta = grace.post(
+            "/documentos",
+            files={"archivo": ("luz.pdf", pdf_con_frase(), "application/pdf")},
+            headers={"X-Hogar-Id": hogar_id},
+        )
+        job = correr(grace, respuesta)
+
+    assert job["fase"] == "lista"
+    assert llamados == [
+        {
+            "actor_id": cuentas["grace"],
+            "hogar_id": hogar_id,
+            "documento_id": job["documento_id"],
+            "proveedor": "Edenor",
+        }
+    ]
+
+
+def test_si_el_aviso_al_administrador_falla_la_carga_queda_lista(cuentas, doble, monkeypatch):
+    async def rompe(*_args, **_kwargs):
+        raise RuntimeError("aviso")
+
+    monkeypatch.setattr("app.ingesta.avisar_borrador_de_asociado", rompe)
+    with cliente_de(cuentas["ada"], "ada@example.com") as ada:
+        job = correr(ada, subir(ada, pdf_con_frase(), "a.pdf"))
+    assert job["fase"] == "lista"
+    assert job["documento_id"]

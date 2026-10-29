@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 import { ErrorApi, cliente, esAbort } from "../api/cliente"
 import type { DocumentoListado } from "../api/tipos"
+import { suscribirEventos } from "../canalBus"
 import {
   FILTROS_INICIALES,
   filtrarRegistros,
@@ -69,6 +70,13 @@ export function useRegistros(): DatosRegistros {
       })
     return () => ctrl.abort()
   }, [intento])
+
+  useEffect(() => {
+    return suscribirEventos((evento) => {
+      if (evento.tipo !== "comprobante.agregado") return
+      setIntento((valor) => valor + 1)
+    })
+  }, [])
 
   return {
     filtros,

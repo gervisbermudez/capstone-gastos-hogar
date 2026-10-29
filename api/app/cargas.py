@@ -109,6 +109,37 @@ async def _avisar(redis, job: dict[str, Any]) -> None:
         logger.warning("No se pudo avisar la carga %s", job.get("job_id"))
 
 
+def _proveedor(campos: object) -> str | None:
+    if not isinstance(campos, dict):
+        return None
+    valor = campos.get("proveedor")
+    if isinstance(valor, str) and valor.strip():
+        return valor
+    return None
+
+
+async def _avisar_al_administrador(redis, job: dict[str, Any], campos: object) -> None:
+    """El borrador ya quedó. Si el aviso falla, la carga sigue en lista."""
+    documento_id = job.get("documento_id")
+    user_id = job.get("user_id")
+    if not isinstance(documento_id, str) or not documento_id:
+        return
+    if not isinstance(user_id, str) or not user_id:
+        return
+    try:
+        from .ingesta import avisar_borrador_de_asociado
+
+        await avisar_borrador_de_asociado(
+            redis,
+            actor_id=user_id,
+            hogar_id=job.get("hogar_id"),
+            documento_id=documento_id,
+            proveedor=_proveedor(campos),
+        )
+    except Exception:
+        logger.warning("No se pudo avisar al administrador la carga %s", job.get("job_id"))
+
+
 async def crear_carga(
     redis, job_id: str, user_id: str, hogar_id: str | None = None
 ) -> dict[str, Any]:
@@ -167,6 +198,7 @@ async def procesar_carga(redis, job_id: str) -> None:
             hogar_id=hogar if isinstance(hogar, str) and hogar else None,
         )
         documento_id = str(cuerpo["id"])
+        campos = cuerpo.get("campos")
         await borrar_pendiente(user_id, job_id)
     except ArchivoRechazado as exc:
         await _fallar(redis, job, exc.detail, "ArchivoRechazado")
@@ -184,6 +216,7 @@ async def procesar_carga(redis, job_id: str) -> None:
     job["mensaje"] = None
     job["error"] = None
     await guardar(redis, job)
+    await _avisar_al_administrador(redis, job, campos)
     logger.info("Carga %s lista", job_id)
 
 

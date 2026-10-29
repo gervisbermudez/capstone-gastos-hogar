@@ -16,6 +16,7 @@ from .extraccion import ArchivoRechazado, extraer
 from .repositorio import (
     administrador_id,
     anular_comprobante,
+    buscar_usuario_por_id,
     confirmar_documento,
     corregir_comprobante,
     descartar_borrador,
@@ -26,6 +27,7 @@ from .repositorio import (
     listar_hilos_de_documento,
     listar_hogares,
     marcar_indexado,
+    membresia,
     obtener_documento,
 )
 from .repositorio.documentos import AccesoDenegado, acceso_documento
@@ -182,6 +184,78 @@ def _publico_confirmado(guardado: dict, *, indexado: str | None = None) -> dict:
     if isinstance(hogar_id, str) and hogar_id:
         datos["hogar_id"] = hogar_id
     return datos
+
+
+def _etiqueta_persona(cuenta: dict | None) -> str:
+    if not isinstance(cuenta, dict):
+        return "Alguien"
+    nombre = cuenta.get("nombre")
+    if isinstance(nombre, str) and nombre.strip():
+        return " ".join(nombre.split())
+    email = cuenta.get("email")
+    if isinstance(email, str) and email.strip():
+        return email.strip()
+    return "Alguien"
+
+
+def _proveedor_de(valor: object) -> str:
+    if not isinstance(valor, str):
+        return ""
+    return " ".join(valor.split())
+
+
+async def avisar_borrador_de_asociado(
+    redis,
+    *,
+    actor_id: str,
+    hogar_id: object,
+    documento_id: str,
+    proveedor: object = None,
+) -> None:
+    """Avisa al administrador si un asociado dejó un borrador.
+
+    Un fallo no deshace la carga. El administrador que sube el suyo no se avisa.
+    """
+    if redis is None or not isinstance(hogar_id, str) or not hogar_id or not documento_id:
+        return
+    try:
+        from .canal import emitir
+
+        if await membresia(actor_id, hogar_id) != "asociado":
+            return
+        admin = await administrador_id(hogar_id)
+        if not admin or admin == actor_id:
+            return
+        nombre = ""
+        for hogar in await listar_hogares(admin):
+            if hogar.get("id") == hogar_id and isinstance(hogar.get("nombre"), str):
+                nombre = hogar["nombre"].strip()
+                break
+        quien = _etiqueta_persona(await buscar_usuario_por_id(actor_id))
+        emisor = _proveedor_de(proveedor)
+        if emisor and nombre:
+            cuerpo = f"{quien} agregó un comprobante de {emisor} en {nombre}."
+        elif emisor:
+            cuerpo = f"{quien} agregó un comprobante de {emisor}."
+        elif nombre:
+            cuerpo = f"{quien} agregó un comprobante en {nombre}."
+        else:
+            cuerpo = f"{quien} agregó un comprobante."
+        await emitir(
+            redis,
+            user_id=admin,
+            tipo="comprobante.agregado",
+            recurso={"clase": "documento", "id": documento_id},
+            payload={"documento_id": documento_id, "hogar_id": hogar_id},
+            notificacion={
+                "titulo": "Comprobante nuevo",
+                "cuerpo": cuerpo,
+                "accion": {"etiqueta": "Revisar", "ruta": f"/documentos/{documento_id}"},
+            },
+            dedupe=f"{admin}:comprobante.agregado:documento:{documento_id}",
+        )
+    except Exception:
+        logger.warning("No se pudo avisar el comprobante %s", documento_id)
 
 
 async def _avisar_confirmacion(redis, *, actor_id: str, hogar_id: object, documento_id: str) -> None:
