@@ -20,6 +20,7 @@ from .repositorio import (
     exportar_csv,
     guardar_borrador,
     listar_documentos,
+    listar_hilos_de_documento,
     marcar_indexado,
     obtener_documento,
 )
@@ -120,6 +121,13 @@ async def obtener(*, user_id: str, documento_id: str) -> dict:
 
 async def listar(*, user_id: str) -> dict:
     return {"items": await listar_documentos(user_id=user_id)}
+
+
+async def listar_hilos(*, user_id: str, documento_id: str) -> list[dict]:
+    items = await listar_hilos_de_documento(user_id=user_id, documento_id=documento_id)
+    if items is None:
+        raise ArchivoRechazado(404, _DETALLE_AUSENTE)
+    return items
 
 
 def _publico_confirmado(guardado: dict, *, indexado: str | None = None) -> dict:

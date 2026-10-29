@@ -18,6 +18,7 @@ from .esquemas import (
     DocumentoDetalle,
     Factura,
     ListaDocumentos,
+    ListaHilos,
     RangoResumen,
 )
 from .extraccion import DETALLE_MODELO, ArchivoRechazado, ErrorDeModelo
@@ -30,6 +31,7 @@ from .ingesta import (
     descartar,
     exportar,
     listar,
+    listar_hilos,
     obtener,
     recibir,
 )
@@ -115,6 +117,18 @@ async def ver_documento(
     if datos.get("estado") == "borrador":
         return DocumentoBorrador.model_validate(datos)
     return DocumentoConfirmado.model_validate(datos)
+
+
+@router.get("/documentos/{id}/hilos", response_model=ListaHilos)
+async def listar_hilos_documento(
+    id: str,
+    usuario: dict = Depends(usuario_actual),
+) -> ListaHilos:
+    try:
+        items = await listar_hilos(user_id=_user_id(usuario), documento_id=id)
+    except ArchivoRechazado as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.detail) from None
+    return ListaHilos.model_validate({"items": items})
 
 
 @router.post("/documentos/{id}/confirmar", response_model=DocumentoConfirmado)

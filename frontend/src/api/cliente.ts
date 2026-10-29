@@ -7,6 +7,8 @@ import {
   type Credenciales,
   type CamposDocumento,
   type Categoria,
+  type CategoriaCatalogo,
+  type CategoriaItem,
   type DocumentoBorrador,
   type DocumentoConfirmado,
   type DocumentoDetalle,
@@ -14,6 +16,7 @@ import {
   type Factura,
   type HiloDetalle,
   type Indexado,
+  type ListaCategorias,
   type ListaDocumentos,
   type ListaHilos,
   type Resumen,
@@ -271,12 +274,17 @@ function asegurarUsuario(valor: unknown): UsuarioActual {
   return { user_id: valor.user_id, email: valor.email }
 }
 
+function textoOpcional(valor: unknown): string | undefined {
+  return typeof valor === "string" && valor.trim() !== "" ? valor : undefined
+}
+
 function asegurarDetalle(valor: unknown): DocumentoDetalle {
   if (!esObjeto(valor) || typeof valor.id !== "string" || valor.id === "") {
     throw new ErrorApi("La API no devolvió el comprobante.", 0)
   }
   const campos = camposDe(valor.campos)
   if (valor.estado === "borrador") {
+    const creado_en = textoOpcional(valor.creado_en)
     return {
       id: valor.id,
       estado: "borrador",
@@ -285,10 +293,18 @@ function asegurarDetalle(valor: unknown): DocumentoDetalle {
       advertencias: Array.isArray(valor.advertencias)
         ? valor.advertencias.filter((item): item is string => typeof item === "string")
         : [],
+      ...(creado_en ? { creado_en } : {}),
     }
   }
   if (valor.estado === "confirmado") {
-    return { id: valor.id, estado: "confirmado", campos, ...datosConfirmado(valor) }
+    const confirmado_en = textoOpcional(valor.confirmado_en)
+    return {
+      id: valor.id,
+      estado: "confirmado",
+      campos,
+      ...datosConfirmado(valor),
+      ...(confirmado_en ? { confirmado_en } : {}),
+    }
   }
   throw new ErrorApi("La API no devolvió el comprobante.", 0)
 }
@@ -380,6 +396,33 @@ function asegurarListaHilos(valor: unknown): ListaHilos {
         actualizado_en: item.actualizado_en,
       }
     }),
+  }
+}
+
+function descripcionDeCategoria(valor: Record<string, unknown>, mensaje: string): string | null {
+  if (!Object.hasOwn(valor, "descripcion")) throw new ErrorApi(mensaje, 0)
+  const descripcion = valor.descripcion
+  if (descripcion === null || typeof descripcion === "string") return descripcion
+  throw new ErrorApi(mensaje, 0)
+}
+
+function asegurarCategoria(valor: unknown, mensaje = "La API no devolvió la categoría."): CategoriaItem {
+  if (!esObjeto(valor) || typeof valor.id !== "string" || valor.id === "" || typeof valor.nombre !== "string") {
+    throw new ErrorApi(mensaje, 0)
+  }
+  return {
+    id: valor.id,
+    nombre: valor.nombre,
+    descripcion: descripcionDeCategoria(valor, mensaje),
+  }
+}
+
+function asegurarListaCategorias(valor: unknown): ListaCategorias {
+  if (!esObjeto(valor) || !Array.isArray(valor.items)) {
+    throw new ErrorApi("La API no devolvió las categorías.", 0)
+  }
+  return {
+    items: valor.items.map((item) => asegurarCategoria(item, "La API no devolvió las categorías.")),
   }
 }
 
@@ -532,6 +575,66 @@ async function* eventosPorSocket(jobId: string, signal?: AbortSignal): AsyncGene
   }
 }
 
+// Camino aparte de enviar(). Estas rutas responden 401 con "La contraseña no coincide."
+// y eso no es una sesión vencida. Solo el detail "No autenticado" la cierra, como el resto.
+async function pedirCuenta(
+  path: string,
+  method: "POST" | "DELETE",
+  cuerpo: unknown,
+  esperado: number[],
+): Promise<unknown> {
+  const token = leerToken()
+  if (!token) {
+    olvidarSesion()
+    olvidarResumenes()
+    alNoAutorizado()
+    throw new ErrorApi("La sesión venció.", 401)
+  }
+
+  const headers = new Headers()
+  headers.set("Authorization", `Bearer ${token}`)
+  headers.set("Content-Type", "application/json")
+
+  let respuesta: Response
+  try {
+    respuesta = await fetch(`${origen()}${path}`, {
+      method,
+      headers,
+      body: JSON.stringify(cuerpo),
+    })
+  } catch (error) {
+    if (esAbort(error)) throw error
+    throw new ErrorApi("No se pudo conectar con la API.", 0)
+  }
+
+  const texto = await respuesta.text()
+  let json: unknown = null
+  if (texto) {
+    try {
+      json = JSON.parse(texto) as unknown
+    } catch {
+      if (!esperado.includes(respuesta.status)) {
+        throw new ErrorApi("La API respondió con un error.", respuesta.status)
+      }
+      throw new ErrorApi("La API devolvió una respuesta que no es JSON.", respuesta.status)
+    }
+  }
+
+  if (respuesta.status === 401) {
+    const leido = leerCuerpo(json)
+    if (leido.mensaje.trim() === "No autenticado") {
+      olvidarSesion()
+      olvidarResumenes()
+      alNoAutorizado()
+      throw new ErrorApi("La sesión venció.", 401)
+    }
+    throw new ErrorApi(leido.mensaje, 401, leido.campos)
+  }
+
+  if (!esperado.includes(respuesta.status)) throw falloDeEstado(respuesta.status, json)
+  return json
+}
+
 export const cliente = {
   registrar(credenciales: Credenciales): Promise<Token> {
     return pedir("/auth/registro", {
@@ -555,6 +658,23 @@ export const cliente = {
     return pedir("/auth/me", { signal, esperado: 200 }).then(asegurarUsuario)
   },
 
+  cambiarEmail(email: string, password: string): Promise<UsuarioActual> {
+    return pedirCuenta("/auth/email", "POST", { email, password }, [200]).then(asegurarUsuario)
+  },
+
+  cambiarPassword(passwordActual: string, passwordNueva: string): Promise<void> {
+    return pedirCuenta(
+      "/auth/password",
+      "POST",
+      { password_actual: passwordActual, password_nueva: passwordNueva },
+      [204],
+    ).then(() => undefined)
+  },
+
+  eliminarCuenta(password: string): Promise<void> {
+    return pedirCuenta("/auth/cuenta", "DELETE", { password }, [204]).then(() => undefined)
+  },
+
   subir(archivo: File): Promise<DocumentoBorrador> {
     return pedir("/documentos", {
       method: "POST",
@@ -576,6 +696,13 @@ export const cliente = {
       signal,
       esperado: 200,
     }).then(asegurarDetalle)
+  },
+
+  hilosDelDocumento(id: string, signal?: AbortSignal): Promise<ListaHilos> {
+    return pedir(`/documentos/${encodeURIComponent(id)}/hilos`, {
+      signal,
+      esperado: 200,
+    }).then(asegurarListaHilos)
   },
 
   confirmar(id: string, factura: Factura): Promise<DocumentoConfirmado> {
@@ -675,5 +802,32 @@ export const cliente = {
       signal,
       esperado: 200,
     }).then(asegurarHilo)
+  },
+
+  listarCategorias(signal?: AbortSignal): Promise<ListaCategorias> {
+    return pedir("/categorias", { signal, esperado: 200 }).then(asegurarListaCategorias)
+  },
+
+  crearCategoria(body: CategoriaCatalogo): Promise<CategoriaItem> {
+    return pedir("/categorias", {
+      method: "POST",
+      cuerpo: body,
+      esperado: 201,
+    }).then((valor) => asegurarCategoria(valor))
+  },
+
+  actualizarCategoria(id: string, body: CategoriaCatalogo): Promise<CategoriaItem> {
+    return pedir(`/categorias/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      cuerpo: body,
+      esperado: 200,
+    }).then((valor) => asegurarCategoria(valor))
+  },
+
+  eliminarCategoria(id: string): Promise<void> {
+    return pedir(`/categorias/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      esperado: 204,
+    }).then(() => undefined)
   },
 }

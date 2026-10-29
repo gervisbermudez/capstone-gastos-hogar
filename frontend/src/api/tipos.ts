@@ -1,5 +1,20 @@
 export type Categoria = "servicios" | "expensas" | "alquiler"
 
+export type CategoriaItem = {
+  id: string
+  nombre: string
+  descripcion: string | null
+}
+
+export type ListaCategorias = {
+  items: CategoriaItem[]
+}
+
+export type CategoriaCatalogo = {
+  nombre: string
+  descripcion: string | null
+}
+
 export type EstadoDocumento = "borrador" | "confirmado"
 
 export type EstadoTarea =
@@ -40,6 +55,7 @@ export type DocumentoBorrador = {
   campos: CamposDocumento
   texto: string
   advertencias: string[]
+  creado_en?: string
 }
 
 export type Indexado = "ok" | "error" | "omitido"
@@ -57,6 +73,7 @@ export type DocumentoConfirmado = {
   anulado: boolean
   indexado: Indexado | null
   cambios: Cambio[]
+  confirmado_en?: string
 }
 
 export type DocumentoDetalle = DocumentoBorrador | DocumentoConfirmado

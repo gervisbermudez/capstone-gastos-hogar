@@ -11,7 +11,7 @@ export function Cargar() {
       <Stack gap={2} maxW="40rem">
         <Heading
           as="h1"
-          color="marca.carbon"
+          color="fg"
           fontSize={{ base: "2rem", md: "2.5rem" }}
           fontWeight="medium"
           letterSpacing="-0.03em"
@@ -24,11 +24,12 @@ export function Cargar() {
         </Text>
       </Stack>
       <Box
-        bg="marca.papel"
+        bg="bg.panel"
         borderRadius="20px"
         px={{ base: 5, md: 10 }}
         py={{ base: 6, md: 10 }}
         boxShadow="0 12px 40px rgba(28, 27, 23, 0.06)"
+        _dark={{ borderWidth: "1px", borderColor: "borde" }}
       >
         <CargaComprobante
           onListo={(documento, archivo) => {

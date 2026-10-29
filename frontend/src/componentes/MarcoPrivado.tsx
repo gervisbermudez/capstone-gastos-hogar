@@ -8,8 +8,10 @@ import { Cargando } from "./Cargando"
 function seccionActiva(pathname: string): Seccion | null {
   if (pathname === "/" || pathname.startsWith("/documentos")) return "tablero"
   if (pathname === "/registros") return "registros"
+  if (pathname === "/categorias") return "categorias"
   if (pathname === "/cargar" || pathname.startsWith("/cargar")) return "cargar"
   if (pathname === "/chat" || pathname.startsWith("/chat")) return "chat"
+  if (pathname === "/opciones") return "opciones"
   return null
 }
 
@@ -48,10 +50,11 @@ export function MarcoPrivado() {
           minH={0}
           minW={0}
           direction={{ base: "column", md: "row" }}
-          bg="marca.lino"
+          bg="bg"
           borderRadius="l3"
           overflow="hidden"
           boxShadow="0 24px 60px rgba(28, 27, 23, 0.12)"
+          _dark={{ borderWidth: "1px", borderColor: "borde" }}
         >
           <Box
             as="aside"
@@ -60,7 +63,7 @@ export function MarcoPrivado() {
             w="240px"
             flexShrink={0}
             minH={0}
-            bg="marca.alabastro"
+            bg="bg.subtle"
           >
             <BarraLateral activo={seccionActiva(pathname)} email={email} onSalir={alSalir} />
           </Box>
@@ -69,10 +72,10 @@ export function MarcoPrivado() {
               <Drawer.Trigger asChild>
                 <Button
                   variant="ghost"
-                  bg="marca.papel"
-                  color="marca.carbon"
+                  bg="bg.panel"
+                  color="fg"
                   borderRadius="full"
-                  _hover={{ bg: "marca.alabastro", color: "marca.carbon" }}
+                  _hover={{ bg: "bg.hover", color: "fg" }}
                 >
                   Menú
                 </Button>
@@ -97,8 +100,8 @@ export function MarcoPrivado() {
           <Drawer.Backdrop />
           <Drawer.Positioner>
             <Drawer.Content
-              bg="marca.alabastro"
-              color="marca.carbon"
+              bg="bg.subtle"
+              color="fg"
               w="240px"
               maxW="85vw"
               h="100dvh"
@@ -116,7 +119,7 @@ export function MarcoPrivado() {
                 />
               </Drawer.Body>
               <Drawer.CloseTrigger asChild>
-                <CloseButton aria-label="Cerrar" color="marca.carbon" />
+                <CloseButton aria-label="Cerrar" color="fg" />
               </Drawer.CloseTrigger>
             </Drawer.Content>
           </Drawer.Positioner>

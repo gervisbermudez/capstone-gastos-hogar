@@ -82,6 +82,55 @@ class Credenciales(_Entrada):
         return valor
 
 
+class CambioEmail(_Entrada):
+    """Body de ``POST /auth/email``. ``password`` es la contraseña actual."""
+
+    email: str
+    password: str
+
+    @field_validator("email")
+    @classmethod
+    def email_presente(cls, valor: str) -> str:
+        texto = valor.strip()
+        if not texto:
+            raise ValueError("Falta el email")
+        return texto
+
+    @field_validator("password")
+    @classmethod
+    def password_presente(cls, valor: str) -> str:
+        if valor == "":
+            raise ValueError("Falta la contraseña")
+        return valor
+
+
+class CambioPassword(_Entrada):
+    """Body de ``POST /auth/password``."""
+
+    password_actual: str
+    password_nueva: str
+
+    @field_validator("password_actual", "password_nueva")
+    @classmethod
+    def password_presente(cls, valor: str) -> str:
+        if valor == "":
+            raise ValueError("Falta la contraseña")
+        return valor
+
+
+class BajaCuenta(_Entrada):
+    """Body de ``DELETE /auth/cuenta``. ``password`` es la contraseña actual."""
+
+    password: str
+
+    @field_validator("password")
+    @classmethod
+    def password_presente(cls, valor: str) -> str:
+        if valor == "":
+            raise ValueError("Falta la contraseña")
+        return valor
+
+
 class Token(_Salida):
     """Registro ``201`` y login ``200``. ``token_type`` es ``bearer``."""
 
@@ -159,13 +208,17 @@ class CamposDocumento(_Salida):
 
 
 class DocumentoBorrador(_Salida):
-    """``POST /documentos`` → ``201``. El monto todavía no entra al libro."""
+    """``POST /documentos`` → ``201``. El monto todavía no entra al libro.
+
+    ``creado_en`` es opcional y solo aparece en el detalle.
+    """
 
     id: str = Field(min_length=1)
     estado: Literal["borrador"]
     campos: CamposDocumento = Field(default_factory=CamposDocumento)
     texto: str
     advertencias: list[str] = Field(default_factory=list)
+    creado_en: str | None = None
 
 
 class Cambio(_Salida):
@@ -180,7 +233,8 @@ class DocumentoConfirmado(_Salida):
     """``POST /documentos/{id}/confirmar`` → ``200``.
 
     ``anulado``, ``indexado`` y ``cambios`` tienen default para no romper
-    respuestas que todavía no los mandan.
+    respuestas que todavía no los mandan. ``confirmado_en`` es opcional y
+    solo aparece en el detalle.
     """
 
     id: str = Field(min_length=1)
@@ -189,6 +243,7 @@ class DocumentoConfirmado(_Salida):
     anulado: bool = False
     indexado: Indexado | None = None
     cambios: list[Cambio] = Field(default_factory=list)
+    confirmado_en: str | None = None
 
 
 class DocumentoListado(_Salida):
@@ -376,3 +431,50 @@ class Salud(_Salida):
     """``GET /health`` → ``200`` cuando Redis responde."""
 
     status: Literal["ok"]
+
+
+class CategoriaCatalogo(_Entrada):
+    """Body de ``POST /categorias`` y ``PATCH /categorias/{id}``.
+
+    ``nombre`` se recorta y no puede quedar vacío. ``descripcion`` vacía
+    o ausente queda en null. Un ``PATCH`` sin descripción la borra.
+    """
+
+    nombre: str
+    descripcion: str | None = None
+
+    @field_validator("nombre")
+    @classmethod
+    def nombre_presente(cls, valor: str) -> str:
+        texto = valor.strip()
+        if not texto:
+            raise ValueError("Falta el nombre")
+        if len(texto) > 80:
+            raise ValueError("El nombre supera los 80 caracteres")
+        return texto
+
+    @field_validator("descripcion")
+    @classmethod
+    def descripcion_opcional(cls, valor: str | None) -> str | None:
+        if valor is None:
+            return None
+        texto = valor.strip()
+        if not texto:
+            return None
+        if len(texto) > 280:
+            raise ValueError("La descripción supera los 280 caracteres")
+        return texto
+
+
+class CategoriaItem(_Salida):
+    """Una fila del catálogo. ``descripcion`` null se emite."""
+
+    id: str = Field(min_length=1)
+    nombre: str
+    descripcion: str | None = None
+
+
+class ListaCategorias(_Salida):
+    """``GET /categorias`` → ``200``."""
+
+    items: list[CategoriaItem]

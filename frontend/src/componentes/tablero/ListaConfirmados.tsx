@@ -53,10 +53,11 @@ export function ListaConfirmados({
           <Card.Root
             key={item.id}
             size="sm"
-            bg="marca.papel"
+            bg="bg.panel"
             borderWidth="0"
             borderRadius="20px"
             boxShadow={SOMBRA}
+            _dark={{ borderWidth: "1px", borderColor: "borde" }}
           >
             <Card.Body>
               <Stack gap={2}>
@@ -80,18 +81,19 @@ export function ListaConfirmados({
       </Stack>
       <Box
         display={{ base: "none", md: "block" }}
-        bg="marca.papel"
+        bg="bg.panel"
         borderWidth="0"
         borderRadius="20px"
         boxShadow={SOMBRA}
         overflow="hidden"
+        _dark={{ borderWidth: "1px", borderColor: "borde" }}
       >
         <Table.ScrollArea>
           <Table.Root
             size="sm"
             css={{
               "& th, & td": {
-                borderColor: "rgba(28, 28, 26, 0.08)",
+                borderColor: "borde",
                 verticalAlign: "middle",
                 py: "0.75rem",
               },
@@ -114,7 +116,7 @@ export function ListaConfirmados({
             </Table.Header>
             <Table.Body>
               {items.map((item) => (
-                <Table.Row key={item.id} css={{ bg: "transparent", _hover: { bg: "marca.alabastro" } }}>
+                <Table.Row key={item.id} css={{ bg: "transparent", _hover: { bg: "bg.hover" } }}>
                   <Table.Cell>{proveedorDe(item.campos)}</Table.Cell>
                   <Table.Cell>{categoriaDe(item.campos)}</Table.Cell>
                   <Table.Cell>{periodoDe(item.campos)}</Table.Cell>

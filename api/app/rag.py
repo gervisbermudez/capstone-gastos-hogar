@@ -225,6 +225,23 @@ async def indexar_texto(
     )
 
 
+def olvidar_usuario(user_id: str) -> None:
+    """Saca los chunks de esa cuenta del jsonl y, si se puede, de Pinecone."""
+    with _candado:
+        restantes = [
+            fila
+            for fila in _cargar_bloqueado()
+            if not (isinstance(fila, dict) and fila.get("user_id") == user_id)
+        ]
+        _documentos_global(restantes)
+        _escribir(restantes)
+    try:
+        store = _store_pinecone()
+        store.delete(filter={"user_id": user_id}, namespace=NAMESPACE)
+    except Exception as exc:
+        logger.warning("No se pudo borrar el índice remoto (%s).", type(exc).__name__)
+
+
 async def buscar(
     *,
     consulta: str,

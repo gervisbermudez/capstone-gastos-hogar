@@ -10,7 +10,7 @@ import {
 import { formatMonto } from "../formato"
 
 const SOMBRA = "0 12px 40px rgba(28, 27, 23, 0.06)"
-const BORDE = "rgba(28, 28, 26, 0.06)"
+const BORDE = "borde"
 const HOVER_FILA = "rgba(245, 203, 92, 0.45)"
 
 type Props = {
@@ -129,8 +129,8 @@ function Proveedor({ campos }: { campos: CamposDocumento }) {
         flexShrink={0}
         boxSize="32px"
         borderRadius="full"
-        bg="marca.alabastro"
-        color="marca.carbon"
+        bg="bg.subtle"
+        color="fg"
         fontSize="xs"
         fontWeight="600"
         lineHeight="1"
@@ -143,7 +143,7 @@ function Proveedor({ campos }: { campos: CamposDocumento }) {
         textOverflow="ellipsis"
         whiteSpace="nowrap"
         fontWeight="medium"
-        color="marca.carbon"
+        color="fg"
       >
         {proveedorDe(campos)}
       </Text>
@@ -158,7 +158,7 @@ function BotonVer({ id }: { id: string }) {
       size="sm"
       variant="outline"
       borderRadius="full"
-      color="marca.carbon"
+      color="fg"
       alignSelf="flex-start"
     >
       <Link to={`/documentos/${id}`}>Ver</Link>
@@ -195,7 +195,7 @@ function Celda({ children }: { children: ReactNode }) {
 
 function TarjetaRegistro({ item }: { item: DocumentoListado }) {
   return (
-    <Card.Root size="sm" bg="marca.papel" borderWidth="0" borderRadius="20px" boxShadow={SOMBRA}>
+    <Card.Root size="sm" bg="bg.panel" borderWidth="0" borderRadius="20px" boxShadow={SOMBRA} _dark={{ borderWidth: "1px", borderColor: "borde" }}>
       <Card.Body>
         <Stack gap={3}>
           <Flex justify="space-between" gap={3} align="center" minW={0}>
@@ -242,7 +242,7 @@ export function TablaRegistros({ items }: Props) {
       </Stack>
       <Box
         display={{ base: "none", md: "block" }}
-        bg="marca.papel"
+        bg="bg.panel"
         borderRadius="20px"
         boxShadow={SOMBRA}
         overflow="hidden"
@@ -250,7 +250,7 @@ export function TablaRegistros({ items }: Props) {
         <Table.ScrollArea>
           <Table.Root size="sm" w="max-content" minW="100%">
             <Table.Header>
-              <Table.Row bg="marca.papel">
+              <Table.Row bg="bg.panel">
                 <Encabezado>Proveedor</Encabezado>
                 <Encabezado>Categoría</Encabezado>
                 <Encabezado>Período</Encabezado>
@@ -266,7 +266,7 @@ export function TablaRegistros({ items }: Props) {
               {items.map((item) => (
                 <Table.Row
                   key={item.id}
-                  bg="marca.papel"
+                  bg="bg.panel"
                   _hover={{ bg: HOVER_FILA }}
                   css={{ "&:last-child td": { borderBottomWidth: 0 } }}
                 >

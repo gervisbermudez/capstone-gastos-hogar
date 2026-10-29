@@ -106,6 +106,38 @@ Respuesta de registro `201`. Respuesta de login `200`:
 
 `GET /auth/me` → `200` `{ "user_id": "...", "email": "ada@example.com" }`.
 
+`POST /auth/email`, `POST /auth/password` y `DELETE /auth/cuenta` llevan `Authorization: Bearer <access_token>`. El body no lleva `user_id`.
+
+`POST /auth/email`
+
+```json
+{ "email": "ada@example.com", "password": "una frase larga" }
+```
+
+`200`, con el email normalizado a minúsculas:
+
+```json
+{ "user_id": "...", "email": "ada@example.com" }
+```
+
+`401` `{ "detail": "La contraseña no coincide." }` y no cambia el email. `409` `{ "detail": "Ese email ya está registrado" }` si es de otra cuenta. El mismo email de la propia cuenta responde `200`.
+
+`POST /auth/password`
+
+```json
+{ "password_actual": "una frase larga", "password_nueva": "otra frase larga" }
+```
+
+`204` sin cuerpo. `401` `{ "detail": "La contraseña no coincide." }` y el hash no cambia. `password_nueva` vacía es `422`. El token sigue valiendo.
+
+`DELETE /auth/cuenta`
+
+```json
+{ "password": "una frase larga" }
+```
+
+`204` después de borrar los datos de esa persona: filas de mensajes, borradores, comprobantes, categorías y el usuario; el directorio de archivos de ese `user_id`; las filas de ese `user_id` en el índice local; un intento de borrar en Pinecone por `user_id` (si falla, la baja igual termina); la caché de resumen de esa persona. `401` `{ "detail": "La contraseña no coincide." }` no borra nada. No se barren los checkpoints del grafo en Redis. Otra cuenta no se toca. El token viejo después responde `401` en `GET /auth/me`.
+
 ### Documentos
 
 `POST /documentos` multipart, campo `archivo` (`jpeg`, `png`, `webp` o `pdf`).

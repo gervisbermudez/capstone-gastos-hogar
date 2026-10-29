@@ -104,23 +104,23 @@ export function EncabezadoChat({
       px={{ base: 4, md: 6 }}
       py={3}
       borderBottomWidth="1px"
-      borderColor="rgba(28, 28, 26, 0.08)"
+      borderColor="borde"
       flexShrink={0}
     >
       <Button
         type="button"
         size="sm"
         variant="ghost"
-        color="marca.carbon"
+        color="fg"
         borderRadius="full"
         display={{ base: "inline-flex", lg: "none" }}
-        _hover={{ bg: "marca.papel", color: "marca.carbon" }}
+        _hover={{ bg: "bg.hover", color: "fg" }}
         onClick={onAbrirHistorial}
         aria-label="Abrir conversaciones anteriores"
       >
         Historial
       </Button>
-      <Text flex="1" minW={0} truncate fontFamily="heading" fontWeight="600" fontSize="lg" color="marca.carbon">
+      <Text flex="1" minW={0} truncate fontFamily="heading" fontWeight="600" fontSize="lg" color="fg">
         {titulo}
       </Text>
     </Flex>
@@ -184,13 +184,13 @@ function ChipAdjunto({
   titulo,
   detalle,
   onQuitar,
-  fondo = "marca.alabastro",
+  fondo = "bg.subtle",
 }: {
   id: string
   titulo: string
   detalle: string
   onQuitar?: () => void
-  fondo?: "marca.alabastro" | "marca.papel"
+  fondo?: "bg.subtle" | "bg.panel"
 }) {
   return (
     <Flex
@@ -210,8 +210,8 @@ function ChipAdjunto({
         flexShrink={0}
         boxSize="32px"
         borderRadius="10px"
-        bg={fondo === "marca.papel" ? "marca.alabastro" : "marca.papel"}
-        color="marca.carbon"
+        bg={fondo === "bg.panel" ? "bg.subtle" : "bg.panel"}
+        color="fg"
       >
         <IconoComprobante />
       </Flex>
@@ -220,7 +220,7 @@ function ChipAdjunto({
           to={`/documentos/${encodeURIComponent(id)}`}
           style={{ minWidth: 0, color: "inherit", textDecoration: "none" }}
         >
-          <Text fontSize="sm" fontWeight="medium" color="marca.carbon" truncate>
+          <Text fontSize="sm" fontWeight="medium" color="fg" truncate>
             {titulo}
           </Text>
         </Link>
@@ -240,9 +240,9 @@ function ChipAdjunto({
           minW="28px"
           h="28px"
           px={0}
-          color="marca.carbon"
+          color="fg"
           flexShrink={0}
-          _hover={{ bg: "marca.papel", color: "marca.carbon" }}
+          _hover={{ bg: "bg.hover", color: "fg" }}
           onClick={onQuitar}
         >
           <IconoQuitar />
@@ -262,7 +262,7 @@ export function EstadoVacio({
   return (
     <EmptyState.Root size="sm">
       <EmptyState.Content>
-        <EmptyState.Title color="marca.carbon" fontFamily="heading">
+        <EmptyState.Title color="fg" fontFamily="heading">
           Preguntale a tus gastos
         </EmptyState.Title>
         <EmptyState.Description color="fg.muted">
@@ -284,15 +284,15 @@ export function EstadoVacio({
               disabled={bloqueado}
               onClick={() => onElegir(ejemplo)}
               css={{
-                bg: "marca.papel",
-                color: "marca.carbon",
-                borderColor: "rgba(28, 28, 26, 0.16)",
+                bg: "bg.panel",
+                color: "fg",
+                borderColor: "borde",
                 _hover: { bg: "#fbe8b4", borderColor: "marca.sol", color: "marca.carbon" },
                 _disabled: {
                   opacity: 0.72,
-                  bg: "marca.papel",
-                  color: "marca.carbon",
-                  borderColor: "rgba(28, 28, 26, 0.16)",
+                  bg: "bg.panel",
+                  color: "fg",
+                  borderColor: "borde",
                 },
               }}
             >
@@ -360,15 +360,15 @@ export function MensajeChat({
                 onClick={() => onDecidir(mensaje.jobId, false)}
                 css={{
                   bg: "transparent",
-                  color: "estado.falla",
-                  borderColor: "estado.falla",
+                  color: "estadoTexto.falla",
+                  borderColor: "estadoTexto.falla",
                   borderRadius: "full",
                   _hover: { bg: "estado.fallaFondo", color: "estado.falla" },
                   _disabled: {
                     opacity: 0.75,
                     bg: "transparent",
-                    color: "estado.falla",
-                    borderColor: "estado.falla",
+                    color: "estadoTexto.falla",
+                    borderColor: "estadoTexto.falla",
                   },
                 }}
               >
@@ -414,13 +414,14 @@ export function MensajeChat({
           borderBottomLeftRadius="20px"
           borderBottomRightRadius="6px"
           boxShadow="0 8px 24px rgba(28, 27, 23, 0.08)"
+          _dark={{ borderWidth: "1px", borderColor: "borde" }}
         >
           <Text as="span" srOnly>
             Vos
           </Text>
           {adjunto ? (
             <Stack gap={2} w="fit-content" maxW="100%">
-              <ChipAdjunto id={adjunto.id} titulo={adjunto.titulo} detalle={adjunto.detalle} fondo="marca.papel" />
+              <ChipAdjunto id={adjunto.id} titulo={adjunto.titulo} detalle={adjunto.detalle} fondo="bg.panel" />
               {visible ? (
                 <Text whiteSpace="pre-wrap" overflowWrap="anywhere">
                   {visible}
@@ -442,12 +443,13 @@ export function MensajeChat({
       <Box
         position="relative"
         maxW={{ base: "88%", md: "75%" }}
-        bg="marca.papel"
-        color="marca.carbon"
+        bg="bg.panel"
+        color="fg"
         px={4}
         py={3}
         borderRadius="20px"
         boxShadow="0 12px 40px rgba(28, 27, 23, 0.06)"
+        _dark={{ borderWidth: "1px", borderColor: "borde" }}
       >
         <Text as="span" srOnly>
           Asistente
@@ -497,9 +499,9 @@ export function Compositor({
             w="100%"
             gap={1}
             borderRadius="24px"
-            bg="marca.papel"
+            bg="bg.panel"
             borderWidth="1px"
-            borderColor="rgba(28, 28, 26, 0.12)"
+            borderColor="borde"
             px={3}
             pt={adjunto ? 3 : 2}
             pb={2}
@@ -513,13 +515,13 @@ export function Compositor({
               borderWidth="0"
               borderRadius="16px"
               bg="transparent"
-              color="marca.carbon"
+              color="fg"
               px={1}
               py={1}
               resize="none"
               focusRing="none"
               _placeholder={{ color: "fg.muted" }}
-              _disabled={{ opacity: 1, bg: "transparent", color: "marca.grafito" }}
+              _disabled={{ opacity: 1, bg: "transparent", color: "fg.muted" }}
               value={valor}
               disabled={ocupado || bloqueado}
               placeholder="Escribí tu pregunta"

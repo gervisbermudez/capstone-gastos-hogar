@@ -10,7 +10,7 @@ Hasta que confirma, el monto no entra al libro ni a los gráficos. Otra persona 
 
 Hay dos recuerdos y no se mezclan:
 
-- El **libro** guarda los montos confirmados. De ahí salen el tablero, el CSV y las preguntas del tipo «¿cuánto pagué?».
+- El **libro** guarda los montos confirmados. De ahí salen el tablero y las preguntas del tipo «¿cuánto pagué?».
 - El **índice** guarda el texto del comprobante. De ahí salen las preguntas del tipo «¿qué dice la factura?».
 
 ## Qué puede hacer una persona
@@ -18,17 +18,16 @@ Hay dos recuerdos y no se mezclan:
 1. Crear una cuenta e ingresar con email y contraseña.
 2. Subir un comprobante (jpeg, png, webp o pdf) o sacar una foto.
 3. Ver los datos leídos, corregirlos y confirmarlos, o descartar el borrador.
-4. Ver el tablero del período: total por mes, total por categoría y la lista de confirmados.
-5. Filtrar esa lista por categoría y descargar un CSV.
-6. Abrir un confirmado para corregirlo o anularlo.
-7. Preguntar en el chat y seguir en la misma conversación.
-8. Aprobar o rechazar una acción del chat antes de que tenga efecto.
+4. Ver el tablero del año en curso: total gastado, gráficos por mes y por categoría, y la lista de confirmados.
+5. Abrir un confirmado para corregirlo o anularlo.
+6. Preguntar en el chat y seguir en la misma conversación.
+7. Aprobar o rechazar una acción del chat antes de que tenga efecto.
 
 ## Pantallas
 
 Quien no tiene sesión solo ve **Ingresar** (`/ingreso`) y **Crear cuenta** (`/registro`). El resto pide sesión. Si el token no sirve, vuelve al ingreso.
 
-Con sesión, el encabezado muestra el email y dos secciones: **Tablero** (`/`) y **Chat** (`/chat`). **Salir** cierra la sesión de esa pestaña.
+Con sesión, el encabezado muestra el email y las secciones **Tablero** (`/`), **Registros**, **Categorías**, **Cargar**, **Chat** (`/chat`) y **Opciones** (`/opciones`). El email abre **Opciones**. **Salir** cierra la sesión de esa pestaña.
 
 | Pantalla | Qué muestra |
 | --- | --- |
@@ -36,6 +35,7 @@ Con sesión, el encabezado muestra el email y dos secciones: **Tablero** (`/`) y
 | Tablero | Período, gráficos, carga, borradores y confirmados. |
 | Revisión (`/documentos/:id`) | Vista previa, texto leído y formulario. |
 | Chat | Conversaciones, ejemplos, mensajes y, si hace falta, aprobar o rechazar. |
+| Opciones (`/opciones`) | Email, cambio de email, cambio de contraseña, duración de la sesión y eliminar la cuenta. El modelo y el índice los configura quien levanta la aplicación: la pantalla no pide ni muestra claves. |
 
 Si no hay borradores ni confirmados en el período, el tablero muestra tres pasos: cargar, revisar y confirmar, preguntar en el chat.
 
@@ -44,6 +44,10 @@ Si no hay borradores ni confirmados en el período, el tablero muestra tres paso
 El registro pide email y contraseña. El texto de la pantalla pide una frase larga; el sistema exige que ambos campos vengan completos. Si el email ya existe, lo dice. Si el ingreso falla, responde que el email o la contraseña no sirven, sin indicar cuál.
 
 Al entrar, la pestaña guarda el token. Dura 15 minutos. Cerrar la pestaña o salir lo borra, junto con el chat guardado en esa pestaña. Otra pestaña no comparte esa sesión.
+
+Con la sesión abierta se puede cambiar el email y la contraseña. Hace falta la contraseña actual. Si no coincide, lo dice y no cambia nada. Si el email es de otra cuenta, lo dice.
+
+Eliminar la cuenta pide la contraseña y escribir el email, y borra comprobantes, borradores, categorías, conversaciones y archivos de esa persona. No es recuperación de contraseña olvidada.
 
 ## Cargar un comprobante
 
@@ -84,13 +88,14 @@ Si el índice no puede guardar el texto, el comprobante igual queda confirmado. 
 
 ## Tablero
 
-El período arranca en enero del año en curso y termina en el mes actual. **Desde** tiene que ser anterior o igual que **Hasta**. Los dos gráficos y la lista de confirmados usan ese rango. Los totales los calcula el servidor. La pantalla solo los muestra, en pesos argentinos cuando la moneda es `ARS` (`18500.50` se ve como `$ 18.500,50`).
+El período es enero del año en curso hasta el mes actual. La pantalla lo muestra como texto. Los gráficos, el total gastado y la lista de confirmados usan ese rango. Los totales los calcula el servidor. La pantalla solo los muestra, en pesos argentinos cuando la moneda es `ARS` (`18500.50` se ve como `$ 18.500,50`).
 
+- Arriba están el total gastado, los comprobantes, los borradores y las categorías. Una barra fina compara confirmados y borradores.
 - **Total por mes:** barras. Si no hay montos en el rango, lo dice.
-- **Total por categoría:** torta de servicios, expensas y alquiler.
-- El filtro de categoría achica solo la lista. Los gráficos siguen siendo del período completo. Una frase debajo de los gráficos lo aclara.
+- **Total por categoría:** anillo de servicios, expensas y alquiler, con el total al centro.
+- Los borradores por revisar aparecen solo cuando hay alguno.
 
-**Descargar CSV** baja los confirmados no anulados de ese período. Las columnas son id, proveedor, categoría, período, monto, moneda y número de comprobante.
+La lista de abajo son los confirmados de ese período.
 
 ## Corregir y anular
 
@@ -140,7 +145,7 @@ Todo lo que se lee o se escribe es de la persona del token. Un comprobante, un a
 
 ## Qué no hace
 
-No hay hogar compartido, recuperación de contraseña, ingreso con un proveedor externo, roles ni panel de administración. No se sube más de un archivo por comprobante. No hay un OCR aparte del modelo. El navegador no calcula totales.
+No hay recuperación de contraseña olvidada, ingreso con un proveedor externo, roles, hogar compartido ni un panel para administrar a otras personas. No se sube más de un archivo por comprobante. No hay un OCR aparte del modelo. El navegador no calcula totales.
 
 ## Límites que se notan al usarla
 

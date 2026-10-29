@@ -93,7 +93,7 @@ function Campo({
       minW={0}
       maxW={crece ? undefined : { md: "11rem" }}
     >
-      <Field.Label color="marca.carbon" fontSize="sm">
+      <Field.Label color="fg" fontSize="sm">
         {etiqueta}
       </Field.Label>
       <Box w="100%">{children}</Box>
@@ -118,8 +118,8 @@ function CampoOpcion<T extends string>({
     <Campo etiqueta={etiqueta}>
       <NativeSelect.Root w="100%">
         <NativeSelect.Field
-          bg="marca.papel"
-          color="marca.carbon"
+          bg="bg.panel"
+          color="fg"
           value={valor}
           onChange={(event) => {
             const elegido = opcionElegida(event.target.value, opciones)
@@ -163,7 +163,7 @@ export function FiltrosRegistros({
         direction={{ base: "column", md: "row" }}
         gap={3}
         align={{ md: "flex-end" }}
-        bg="marca.papel"
+        bg="bg.panel"
         borderRadius="20px"
         boxShadow={SOMBRA}
         px={4}
@@ -172,7 +172,7 @@ export function FiltrosRegistros({
         <Campo etiqueta="Desde">
           <Input
             w="100%"
-            bg="marca.papel"
+            bg="bg.panel"
             type="date"
             value={filtros.desde}
             onChange={(event) => onCambio("desde", event.target.value)}
@@ -181,7 +181,7 @@ export function FiltrosRegistros({
         <Campo etiqueta="Hasta">
           <Input
             w="100%"
-            bg="marca.papel"
+            bg="bg.panel"
             type="date"
             value={filtros.hasta}
             onChange={(event) => onCambio("hasta", event.target.value)}
@@ -190,7 +190,7 @@ export function FiltrosRegistros({
         <Campo etiqueta="Buscar" crece>
           <Input
             w="100%"
-            bg="marca.papel"
+            bg="bg.panel"
             value={filtros.texto}
             placeholder="Proveedor, número, monto…"
             onChange={(event) => onCambio("texto", event.target.value)}
@@ -200,7 +200,7 @@ export function FiltrosRegistros({
           type="button"
           variant="outline"
           borderRadius="full"
-          color="marca.carbon"
+          color="fg"
           alignSelf={{ base: "flex-start", md: "flex-end" }}
           aria-expanded={extrasAbiertos}
           aria-controls="filtros-extra"
@@ -227,7 +227,7 @@ export function FiltrosRegistros({
           type="button"
           variant="outline"
           borderRadius="full"
-          color="marca.carbon"
+          color="fg"
           alignSelf={{ base: "flex-start", md: "flex-end" }}
           disabled={!puedeDescargar}
           onClick={onDescargar}
@@ -239,7 +239,7 @@ export function FiltrosRegistros({
             type="button"
             variant="ghost"
             borderRadius="full"
-            color="marca.carbon"
+            color="fg"
             alignSelf={{ base: "flex-start", md: "flex-end" }}
             onClick={alLimpiar}
           >
@@ -256,14 +256,14 @@ export function FiltrosRegistros({
       ) : null}
 
       {extrasAbiertos ? (
-        <Stack id="filtros-extra" gap={4} bg="marca.alabastro" borderRadius="20px" px={4} py={4}>
+        <Stack id="filtros-extra" gap={4} bg="bg.subtle" borderRadius="20px" px={4} py={4}>
           <Checkbox.Root
             checked={filtros.incluirSinPeriodo}
             onCheckedChange={({ checked }) => onCambio("incluirSinPeriodo", checked === true)}
           >
             <Checkbox.HiddenInput />
             <Checkbox.Control />
-            <Checkbox.Label color="marca.carbon" fontSize="sm">
+            <Checkbox.Label color="fg" fontSize="sm">
               Incluir sin período
             </Checkbox.Label>
           </Checkbox.Root>
@@ -285,8 +285,8 @@ export function FiltrosRegistros({
           <Campo etiqueta="Moneda">
             <NativeSelect.Root w="100%">
               <NativeSelect.Field
-                bg="marca.papel"
-                color="marca.carbon"
+                bg="bg.panel"
+                color="fg"
                 value={filtros.moneda}
                 onChange={(event) => onCambio("moneda", event.target.value)}
               >

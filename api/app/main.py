@@ -153,7 +153,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=_origenes_permitidos(),
     allow_credentials=False,
-    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
 )
 
@@ -368,3 +368,4 @@ def _montar_router(modulo: str) -> None:
 
 _montar_router(".rutas_auth")
 _montar_router(".rutas_documentos")
+_montar_router(".rutas_categorias")

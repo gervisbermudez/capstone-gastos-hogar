@@ -36,7 +36,14 @@ export function PanelBorradores({
 }) {
   if (cargando) {
     return (
-      <Card.Root bg="marca.papel" borderWidth="0" borderRadius="20px" boxShadow={SOMBRA} aria-busy>
+      <Card.Root
+        bg="bg.panel"
+        borderWidth="0"
+        borderRadius="20px"
+        boxShadow={SOMBRA}
+        aria-busy
+        _dark={{ borderWidth: "1px", borderColor: "borde" }}
+      >
         <Card.Body>
           <Skeleton height="4.5rem" borderRadius="16px" />
         </Card.Body>
@@ -50,16 +57,23 @@ export function PanelBorradores({
 
   return (
     <Card.Root
-      bg="marca.papel"
+      bg="bg.panel"
       borderWidth="0"
       borderLeftWidth="3px"
+      borderLeftStyle="solid"
       borderLeftColor="marca.sol"
       borderRadius="20px"
       boxShadow={SOMBRA}
+      _dark={{
+        borderWidth: "1px",
+        borderColor: "borde",
+        borderLeftWidth: "3px",
+        borderLeftColor: "marca.sol",
+      }}
     >
       <Card.Header>
         <Flex justify="space-between" align="center" gap={3}>
-          <Card.Title as="h2" fontWeight="medium" color="marca.carbon" letterSpacing="-0.03em">
+          <Card.Title as="h2" fontWeight="medium" color="fg" letterSpacing="-0.03em">
             Borradores por revisar
           </Card.Title>
           <Text color="fg.muted" fontSize="sm" fontVariantNumeric="tabular-nums">
@@ -78,7 +92,7 @@ export function PanelBorradores({
               gap={3}
             >
               <Stack gap={0.5} minW={0}>
-                <Text fontWeight="medium" color="marca.carbon">
+                <Text fontWeight="medium" color="fg">
                   {proveedorDe(item.campos)}
                 </Text>
                 <Text fontSize="sm" color="fg.muted">

@@ -6,6 +6,14 @@
     <link rel="icon" href="/favicon.ico" sizes="any" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <title>Capstone</title>
+    <script>
+      try {
+        if (localStorage.getItem("gastos.tema") === "oscuro") {
+          document.documentElement.classList.add("dark")
+          document.documentElement.style.colorScheme = "dark"
+        }
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

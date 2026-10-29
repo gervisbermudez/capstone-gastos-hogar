@@ -60,6 +60,17 @@ CREATE TABLE IF NOT EXISTS mensajes (
 
 CREATE INDEX IF NOT EXISTS ix_mensajes_user_hilo
     ON mensajes(user_id, thread_id, id);
+
+CREATE TABLE IF NOT EXISTS categorias (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES usuarios(user_id),
+    nombre TEXT NOT NULL,
+    descripcion TEXT,
+    creado_en TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_categorias_user_nombre
+    ON categorias(user_id, nombre COLLATE NOCASE);
 """
 
 # Columnas nuevas: nullable o con default, para que los INSERT viejos sigan.

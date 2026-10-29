@@ -22,7 +22,7 @@ import {
   olvidarJobPendiente,
   type MensajeGuardado,
 } from "../almacen"
-import { citaComprobante, fotoDesdeCita, textoVisible, tituloVisible } from "../chat/contexto"
+import { citaComprobante, esTituloCita, fotoDesdeCita, textoVisible, tituloVisible } from "../chat/contexto"
 import { Compositor, EncabezadoChat, EstadoVacio, MensajeChat, fotoDeAdjunto } from "../componentes/chat/Conversacion"
 import { ListaConversaciones } from "../componentes/chat/ListaConversaciones"
 
@@ -144,13 +144,17 @@ function personaYaRegistrada(mensajes: readonly Mensaje[], texto: string): boole
   return false
 }
 
+function tituloLocal(mensajes: readonly Mensaje[]): string {
+  const persona = mensajes.find((mensaje) => mensaje.tipo === "persona")
+  if (persona?.tipo !== "persona" || !persona.texto.trim() || esTituloCita(persona.texto)) return ""
+  return tituloVisible(persona.texto)
+}
+
 function tituloDe(hilos: Hilo[] | null, activo: string | null, mensajes: readonly Mensaje[]): string {
   if (!activo) return "Nueva conversación"
-  const guardado = hilos?.find((hilo) => hilo.thread_id === activo)?.titulo.trim()
-  if (guardado) return tituloVisible(guardado)
-  const persona = mensajes.find((mensaje) => mensaje.tipo === "persona")
-  if (persona?.tipo === "persona" && persona.texto.trim()) return tituloVisible(persona.texto)
-  return "Conversación"
+  const guardado = hilos?.find((hilo) => hilo.thread_id === activo)?.titulo.trim() ?? ""
+  if (guardado && !esTituloCita(guardado)) return tituloVisible(guardado)
+  return tituloLocal(mensajes) || (guardado ? tituloVisible(guardado) : "Conversación")
 }
 
 function hilosConActual(hilos: Hilo[] | null, activo: string | null, mensajes: readonly Mensaje[]): Hilo[] | null {
@@ -218,10 +222,14 @@ function prepararEntrada(comprobanteId: string | null, iniciarNuevo: boolean): E
   }
 }
 
-function hilosLimpios(hilos: Hilo[] | null): Hilo[] | null {
+function hilosLimpios(hilos: Hilo[] | null, activo: string | null, mensajes: readonly Mensaje[]): Hilo[] | null {
   if (!hilos) return null
   return hilos.map((hilo) => {
-    const titulo = tituloVisible(hilo.titulo)
+    let titulo = tituloVisible(hilo.titulo)
+    if (esTituloCita(hilo.titulo)) {
+      const local = tituloLocal(hilo.thread_id === activo ? mensajes : leerTranscripto(hilo.thread_id))
+      if (local) titulo = local
+    }
     if (titulo === hilo.titulo) return hilo
     return { ...hilo, titulo }
   })
@@ -232,7 +240,8 @@ export function Chat() {
   const location = useLocation()
   const navigate = useNavigate()
   const comprobanteParam = params.get("comprobante")
-  const iniciarNuevo = idNuevo(location.state) === comprobanteParam && comprobanteParam !== null
+  const hiloParam = params.get("hilo")
+  const iniciarNuevo = !hiloParam && idNuevo(location.state) === comprobanteParam && comprobanteParam !== null
   const [inicial] = useState(() => prepararEntrada(comprobanteParam, iniciarNuevo))
   const hiloRef = useRef(inicial.hilo)
   const [hiloActivo, setHiloActivo] = useState<string | null>(inicial.hilo)
@@ -684,9 +693,27 @@ export function Chat() {
     void abrirHilo(threadId)
   }
 
+  const hiloEnlace = useRef(hiloParam)
+
+  useEffect(() => {
+    const pedido = hiloEnlace.current
+    if (!pedido) return
+    hiloEnlace.current = null
+    void abrirHilo(pedido)
+    setSearchParams(
+      (actuales) => {
+        if (!actuales.has("hilo")) return actuales
+        const siguientes = new URLSearchParams(actuales)
+        siguientes.delete("hilo")
+        return siguientes
+      },
+      { replace: true },
+    )
+  }, [setSearchParams])
+
   const bloqueado = ocupado || hayPendiente
   const titulo = tituloDe(hilos, hiloActivo, mensajes)
-  const historial = hilosLimpios(hilosConActual(hilos, hiloActivo, mensajes))
+  const historial = hilosLimpios(hilosConActual(hilos, hiloActivo, mensajes), hiloActivo, mensajes)
 
   return (
     <Drawer.Root placement="start" open={historialAbierto} onOpenChange={(detalle) => setHistorialAbierto(detalle.open)}>
@@ -697,9 +724,9 @@ export function Chat() {
           w="280px"
           flexShrink={0}
           minH={0}
-          bg="marca.alabastro"
+          bg="bg.subtle"
           borderRightWidth="1px"
-          borderColor="rgba(28, 28, 26, 0.08)"
+          borderColor="borde"
         >
           <ListaConversaciones
             hilos={historial}
@@ -725,8 +752,8 @@ export function Chat() {
             {cargandoHilo && mensajes.length === 0 ? (
               <Flex align="center" justify="center" minH="100%">
                 <HStack>
-                  <Spinner size="sm" color="marca.carbon" />
-                  <Text color="marca.carbon">Abriendo la conversación…</Text>
+                  <Spinner size="sm" color="fg" />
+                  <Text color="fg">Abriendo la conversación…</Text>
                 </HStack>
               </Flex>
             ) : mensajes.length === 0 && !ocupado ? (
@@ -745,14 +772,14 @@ export function Chat() {
                 ))}
                 {ocupado ? (
                   <HStack>
-                    <Spinner size="sm" color="marca.carbon" />
-                    <Text color="marca.carbon">{fase === "decision" ? "Aplicando la decisión…" : "Consultando…"}</Text>
+                    <Spinner size="sm" color="fg" />
+                    <Text color="fg">{fase === "decision" ? "Aplicando la decisión…" : "Consultando…"}</Text>
                   </HStack>
                 ) : null}
               </Stack>
             )}
           </Box>
-          <Box flexShrink={0} px={{ base: 4, md: 6 }} pt={3} pb={4} borderTopWidth="1px" borderColor="rgba(28, 28, 26, 0.08)">
+          <Box flexShrink={0} px={{ base: 4, md: 6 }} pt={3} pb={4} borderTopWidth="1px" borderColor="borde">
             {error ? (
               <Alert.Root status="error" mb={3}>
                 <Alert.Indicator />
@@ -778,7 +805,7 @@ export function Chat() {
       <Portal>
         <Drawer.Backdrop />
         <Drawer.Positioner>
-          <Drawer.Content bg="marca.alabastro" color="marca.carbon" w="300px" maxW="85vw" h="100dvh">
+          <Drawer.Content bg="bg.subtle" color="fg" w="300px" maxW="85vw" h="100dvh">
             <Drawer.Title srOnly>Conversaciones</Drawer.Title>
             <Drawer.Body p={0} flex="1" minH={0} display="flex" flexDirection="column" overflow="hidden">
               <ListaConversaciones
@@ -793,7 +820,7 @@ export function Chat() {
               />
             </Drawer.Body>
             <Drawer.CloseTrigger asChild>
-              <CloseButton aria-label="Cerrar" color="marca.carbon" />
+              <CloseButton aria-label="Cerrar" color="fg" />
             </Drawer.CloseTrigger>
           </Drawer.Content>
         </Drawer.Positioner>

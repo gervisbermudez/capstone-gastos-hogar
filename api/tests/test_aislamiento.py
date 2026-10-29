@@ -382,6 +382,82 @@ def test_hilo_ajeno_no_se_lee(tmp_path, monkeypatch) -> None:
     asyncio.run(caso())
 
 
+def test_detalle_trae_fecha_y_el_listado_no(tmp_path, monkeypatch) -> None:
+    _entorno(monkeypatch, tmp_path)
+
+    async def caso() -> None:
+        ana = await repositorio.crear_usuario("ana@example.com", auth.hashear("clave-de-ana-larga"))
+        borrador = await repositorio.guardar_borrador(
+            user_id=ana,
+            texto="factura de ana",
+            campos={"proveedor": "Edenor"},
+            advertencias=[],
+        )
+        detalle = await repositorio.obtener_documento(user_id=ana, documento_id=borrador)
+        assert detalle is not None
+        assert isinstance(detalle["creado_en"], str) and detalle["creado_en"]
+        for item in await repositorio.listar_documentos(user_id=ana):
+            assert "creado_en" not in item
+            assert "confirmado_en" not in item
+
+        await repositorio.confirmar_documento(
+            user_id=ana,
+            documento_id=borrador,
+            campos=FACTURA_A,
+        )
+        confirmado = await repositorio.obtener_documento(user_id=ana, documento_id=borrador)
+        assert confirmado is not None
+        assert isinstance(confirmado["confirmado_en"], str) and confirmado["confirmado_en"]
+        for item in await repositorio.listar_documentos(user_id=ana):
+            assert "creado_en" not in item
+            assert "confirmado_en" not in item
+
+    asyncio.run(caso())
+
+
+def test_hilos_de_documento_citan_solo_al_dueno(tmp_path, monkeypatch) -> None:
+    _entorno(monkeypatch, tmp_path)
+
+    async def caso() -> None:
+        ana = await repositorio.crear_usuario("ana@example.com", auth.hashear("clave-de-ana-larga"))
+        beto = await repositorio.crear_usuario("beto@example.com", auth.hashear("clave-de-beto-larga"))
+        documento = await repositorio.guardar_borrador(
+            user_id=ana,
+            texto="factura de ana",
+            campos={"proveedor": "Edenor"},
+            advertencias=[],
+        )
+        sin_citas = await repositorio.guardar_borrador(
+            user_id=ana,
+            texto="otro comprobante",
+            campos={},
+            advertencias=[],
+        )
+        await repositorio.anotar_mensaje(
+            user_id=ana,
+            thread_id="hilo-cita",
+            rol="persona",
+            texto=f"[comprobante {documento} | Edenor | servicios | 2026-03] cuánto pagué",
+        )
+        await repositorio.anotar_mensaje(
+            user_id=ana,
+            thread_id="hilo-otro",
+            rol="persona",
+            texto="pregunta suelta",
+        )
+        hilos = await repositorio.listar_hilos_de_documento(user_id=ana, documento_id=documento)
+        assert hilos is not None
+        assert [item["thread_id"] for item in hilos] == ["hilo-cita"]
+        assert hilos[0]["titulo"] == "cuánto pagué"
+        assert "[comprobante" not in hilos[0]["titulo"]
+        assert hilos[0]["actualizado_en"]
+        assert await repositorio.listar_hilos_de_documento(user_id=beto, documento_id=documento) is None
+        assert await repositorio.listar_hilos_de_documento(user_id=ana, documento_id="no-es-uuid") is None
+        assert await repositorio.listar_hilos_de_documento(user_id=ana, documento_id=sin_citas) == []
+
+    asyncio.run(caso())
+
+
 def test_migracion_agrega_columnas_sin_romper_el_insert(tmp_path, monkeypatch) -> None:
     _entorno(monkeypatch, tmp_path)
 

@@ -7,8 +7,8 @@ export function Cargando({ texto, completo = false }: { texto: string; completo?
       <Center minH="100vh" w="100%" px={4} bg="transparent">
         <Stack align="center" gap={8}>
           <Logotipo tamano="md" />
-          <Spinner size="lg" color="marca.carbon" />
-          <Text color="marca.carbon" textAlign="center">
+          <Spinner size="lg" color="fg" />
+          <Text color="fg" textAlign="center">
             {texto}
           </Text>
         </Stack>
@@ -19,8 +19,8 @@ export function Cargando({ texto, completo = false }: { texto: string; completo?
   return (
     <Center minH="40vh" w="100%" px={4} bg="transparent">
       <Stack align="center" gap={3}>
-        <Spinner size="lg" color="marca.carbon" />
-        <Text color="marca.carbon" textAlign="center">
+        <Spinner size="lg" color="fg" />
+        <Text color="fg" textAlign="center">
           {texto}
         </Text>
       </Stack>

@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react"
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { useNavigate } from "react-router"
 import { guardarToken, leerToken, olvidarHilo, olvidarSesion } from "./almacen"
 import { olvidarResumenes } from "./api/cacheResumen"
@@ -11,6 +11,7 @@ type Sesion = {
   listo: boolean
   entrar: (accessToken: string) => void
   salir: () => void
+  actualizarEmail: (email: string) => void
 }
 
 const ContextoSesion = createContext<Sesion | null>(null)
@@ -20,6 +21,7 @@ export function ProveedorSesion({ children }: { children: ReactNode }) {
   const [token, setToken] = useState<string | null>(() => leerToken())
   const [email, setEmail] = useState<string | null>(null)
   const [listo, setListo] = useState(() => leerToken() === null)
+  const versionEmail = useRef(0)
 
   const salir = useCallback(() => {
     olvidarSesion()
@@ -38,6 +40,11 @@ export function ProveedorSesion({ children }: { children: ReactNode }) {
     setListo(true)
   }, [])
 
+  const actualizarEmail = useCallback((nuevoEmail: string) => {
+    versionEmail.current += 1
+    setEmail(nuevoEmail)
+  }, [])
+
   useEffect(() => {
     registrarNoAutorizado(() => {
       salir()
@@ -53,10 +60,11 @@ export function ProveedorSesion({ children }: { children: ReactNode }) {
     }
     const ctrl = new AbortController()
     let cancelado = false
+    const version = versionEmail.current
     cliente
       .yo(ctrl.signal)
       .then((usuario) => {
-        if (!cancelado) setEmail(usuario.email)
+        if (!cancelado && versionEmail.current === version) setEmail(usuario.email)
       })
       .catch((error: unknown) => {
         if (cancelado || esAbort(error) || error instanceof ErrorApi) return
@@ -71,8 +79,8 @@ export function ProveedorSesion({ children }: { children: ReactNode }) {
   }, [token])
 
   const valor = useMemo(
-    () => ({ token, email, listo, entrar, salir }),
-    [token, email, listo, entrar, salir],
+    () => ({ token, email, listo, entrar, salir, actualizarEmail }),
+    [token, email, listo, entrar, salir, actualizarEmail],
   )
 
   return <ContextoSesion.Provider value={valor}>{children}</ContextoSesion.Provider>

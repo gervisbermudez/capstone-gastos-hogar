@@ -47,7 +47,7 @@ export function Registros() {
       <Stack gap={2}>
         <Heading
           as="h1"
-          color="marca.carbon"
+          color="fg"
           fontSize={{ base: "2rem", md: "2.5rem" }}
           fontWeight="medium"
           letterSpacing="-0.03em"
@@ -59,7 +59,7 @@ export function Registros() {
           Todos los comprobantes cargados, borradores y confirmados.
         </Text>
         {items !== null ? (
-          <Text fontSize="sm" fontWeight="medium" color="marca.carbon">
+          <Text fontSize="sm" fontWeight="medium" color="fg">
             {rangoInvalido ? fraseConteo(items.length, items.length) : fraseConteo(visibles.length, items.length)}
           </Text>
         ) : null}
@@ -107,9 +107,9 @@ export function Registros() {
               mt={3}
               size="sm"
               css={{
-                bg: "marca.carbon",
-                color: "marca.papel",
-                _hover: { bg: "marca.grafito" },
+                bg: "fg",
+                color: "fg.sobreSolido",
+                _hover: { bg: "solido.hover", color: "fg.sobreSolido" },
               }}
             >
               <Link to="/cargar">Cargar un comprobante</Link>
@@ -138,7 +138,7 @@ export function Registros() {
         >
           <Flex gap={2} align="center" wrap="wrap">
             <Pagination.PrevTrigger asChild>
-              <Button type="button" size="sm" variant="outline" borderRadius="full" color="marca.carbon">
+              <Button type="button" size="sm" variant="outline" borderRadius="full" color="fg">
                 Anterior
               </Button>
             </Pagination.PrevTrigger>
@@ -150,8 +150,8 @@ export function Registros() {
                     size="sm"
                     variant="outline"
                     borderRadius="full"
-                    color="marca.carbon"
-                    css={{ "&[data-selected]": { bg: "marca.carbon", color: "marca.papel" } }}
+                    color="fg"
+                    css={{ "&[data-selected]": { bg: "fg", color: "fg.sobreSolido" } }}
                   >
                     {item.value}
                   </Button>
@@ -159,7 +159,7 @@ export function Registros() {
               )}
             />
             <Pagination.NextTrigger asChild>
-              <Button type="button" size="sm" variant="outline" borderRadius="full" color="marca.carbon">
+              <Button type="button" size="sm" variant="outline" borderRadius="full" color="fg">
                 Siguiente
               </Button>
             </Pagination.NextTrigger>

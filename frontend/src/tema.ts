@@ -39,23 +39,30 @@ const tokens = defineTokens({
   },
 })
 
-const lienzo = {
-  color: "marca.carbon",
-  margin: 0,
-  fontFamily: "body",
-  minHeight: "100%",
-  backgroundColor: "#f7f4ea",
-  backgroundImage: "linear-gradient(145deg, #f7f4ea 0%, #fbf6e4 42%, #f3e4a8 100%)",
-  backgroundAttachment: "fixed",
-  backgroundRepeat: "no-repeat",
-} as const
-
 export const sistema = createSystem(
   defaultConfig,
   defineConfig({
     globalCss: {
-      html: lienzo,
-      body: lienzo,
+      html: {
+        margin: 0,
+        minHeight: "100%",
+      },
+      body: {
+        color: "fg",
+        margin: 0,
+        fontFamily: "body",
+        minHeight: "100%",
+        backgroundColor: "bg",
+        backgroundImage: "linear-gradient(145deg, #f7f4ea 0%, #fbf6e4 42%, #f3e4a8 100%)",
+        backgroundAttachment: "fixed",
+        backgroundRepeat: "no-repeat",
+        colorScheme: "light",
+        _dark: {
+          backgroundColor: "#1c1c1a",
+          backgroundImage: "linear-gradient(145deg, #1c1c1a 0%, #3a3934 100%)",
+          colorScheme: "dark",
+        },
+      },
       "[data-scope=toast][data-part=group]": {
         width: "min(24rem, calc(100vw - 2rem))",
       },
@@ -65,12 +72,51 @@ export const sistema = createSystem(
       semanticTokens: defineSemanticTokens({
         colors: {
           bg: {
-            DEFAULT: { value: "{colors.marca.lino}" },
-            panel: { value: "{colors.marca.papel}" },
+            DEFAULT: {
+              value: { _light: "{colors.marca.lino}", _dark: "{colors.marca.carbon}" },
+            },
+            panel: {
+              value: { _light: "{colors.marca.papel}", _dark: "{colors.marca.grafito}" },
+            },
+            subtle: {
+              value: { _light: "{colors.marca.alabastro}", _dark: "{colors.marca.grafito}" },
+            },
+            hover: {
+              value: { _light: "{colors.marca.papel}", _dark: "{colors.marca.carbon}" },
+            },
           },
           fg: {
-            DEFAULT: { value: "{colors.marca.carbon}" },
-            muted: { value: "#5c584f" },
+            DEFAULT: {
+              value: { _light: "{colors.marca.carbon}", _dark: "{colors.marca.papel}" },
+            },
+            muted: {
+              value: { _light: "#5c584f", _dark: "{colors.marca.alabastro}" },
+            },
+            sobreSolido: {
+              value: { _light: "{colors.marca.papel}", _dark: "{colors.marca.carbon}" },
+            },
+          },
+          solido: {
+            hover: {
+              value: { _light: "{colors.marca.grafito}", _dark: "{colors.marca.alabastro}" },
+            },
+          },
+          borde: {
+            value: {
+              _light: "rgba(28, 28, 26, 0.12)",
+              _dark: "rgba(255, 253, 248, 0.16)",
+            },
+          },
+          estadoTexto: {
+            ok: {
+              value: { _light: "{colors.estado.ok}", _dark: "{colors.estado.okFondo}" },
+            },
+            aviso: {
+              value: { _light: "{colors.estado.aviso}", _dark: "{colors.estado.avisoFondo}" },
+            },
+            falla: {
+              value: { _light: "{colors.estado.falla}", _dark: "{colors.estado.fallaFondo}" },
+            },
           },
         },
         radii: {
@@ -88,20 +134,20 @@ export const sistema = createSystem(
         }),
         input: defineRecipe({
           base: {
-            bg: "marca.papel",
-            color: "marca.carbon",
+            bg: "bg.panel",
+            color: "fg",
             borderRadius: "16px",
             borderWidth: "1px",
-            borderColor: "rgba(28, 28, 26, 0.12)",
+            borderColor: "borde",
             focusVisibleRing: "outside",
             focusRingColor: "marca.sol",
           },
           variants: {
             variant: {
               outline: {
-                bg: "marca.papel",
-                color: "marca.carbon",
-                borderColor: "rgba(28, 28, 26, 0.12)",
+                bg: "bg.panel",
+                color: "fg",
+                borderColor: "borde",
                 focusVisibleRing: "outside",
                 focusRingColor: "marca.sol",
               },
@@ -115,16 +161,16 @@ export const sistema = createSystem(
           base: {
             root: {
               alignItems: "center",
-              bg: "marca.papel",
-              color: "marca.carbon",
+              bg: "bg.panel",
+              color: "fg",
               boxShadow: "0 16px 40px rgba(28, 27, 23, 0.22)",
               borderWidth: "1px",
               borderStyle: "solid",
-              borderColor: "rgba(36, 36, 35, 0.1)",
+              borderColor: "borde",
               borderInlineStartWidth: "4px",
               borderInlineStartColor: "var(--toast-accent)",
               pe: "8",
-              "--toast-accent": "{colors.marca.grafito}",
+              "--toast-accent": "{colors.fg}",
               "--toast-trigger-bg": "{colors.marca.alabastro}",
               "&[data-type=success]": {
                 bg: "estado.okFondo",
@@ -149,11 +195,11 @@ export const sistema = createSystem(
               },
             },
             title: {
-              color: "marca.carbon",
+              color: "inherit",
               lineHeight: "1.35",
             },
             description: {
-              color: "marca.grafito",
+              color: "inherit",
               opacity: "1",
               lineHeight: "1.4",
             },
@@ -161,7 +207,7 @@ export const sistema = createSystem(
               color: "var(--toast-accent)",
             },
             closeTrigger: {
-              color: "marca.grafito",
+              color: "inherit",
               _hover: { bg: "{black/6}" },
             },
           },

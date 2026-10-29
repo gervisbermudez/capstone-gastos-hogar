@@ -6,6 +6,7 @@ import { App } from "./App"
 import { Avisos } from "./avisos"
 import { ProveedorSesion } from "./sesion"
 import { sistema } from "./tema"
+import { ProveedorTema } from "./temaModo"
 
 const raiz = document.getElementById("root")
 if (!raiz) throw new Error("Falta el nodo raíz")
@@ -13,12 +14,14 @@ if (!raiz) throw new Error("Falta el nodo raíz")
 createRoot(raiz).render(
   <StrictMode>
     <ChakraProvider value={sistema}>
-      <Avisos />
-      <BrowserRouter>
-        <ProveedorSesion>
-          <App />
-        </ProveedorSesion>
-      </BrowserRouter>
+      <ProveedorTema>
+        <Avisos />
+        <BrowserRouter>
+          <ProveedorSesion>
+            <App />
+          </ProveedorSesion>
+        </BrowserRouter>
+      </ProveedorTema>
     </ChakraProvider>
   </StrictMode>,
 )

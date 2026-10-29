@@ -58,11 +58,12 @@ export function FormularioAcceso({ titulo, descripcion, enviarEtiqueta, alterno,
         <Card.Root
           w="100%"
           size="lg"
-          bg="marca.papel"
-          color="marca.carbon"
+          bg="bg.panel"
+          color="fg"
           borderWidth="0"
           borderRadius="l3"
           boxShadow="0 24px 60px rgba(28, 27, 23, 0.12)"
+          _dark={{ borderWidth: "1px", borderColor: "borde" }}
         >
           <Card.Header>
             <Heading
@@ -71,7 +72,7 @@ export function FormularioAcceso({ titulo, descripcion, enviarEtiqueta, alterno,
               fontSize="2.25rem"
               letterSpacing="-0.03em"
               lineHeight="1.15"
-              color="marca.carbon"
+              color="fg"
             >
               {titulo}
             </Heading>
@@ -96,7 +97,7 @@ export function FormularioAcceso({ titulo, descripcion, enviarEtiqueta, alterno,
                   </Alert.Root>
                 ) : null}
                 <Field.Root required>
-                  <Field.Label color="marca.carbon" fontWeight="medium">
+                  <Field.Label color="fg" fontWeight="medium">
                     Email
                   </Field.Label>
                   <Input
@@ -108,7 +109,7 @@ export function FormularioAcceso({ titulo, descripcion, enviarEtiqueta, alterno,
                   />
                 </Field.Root>
                 <Field.Root required>
-                  <Field.Label color="marca.carbon" fontWeight="medium">
+                  <Field.Label color="fg" fontWeight="medium">
                     Contraseña
                   </Field.Label>
                   <Input
@@ -131,19 +132,19 @@ export function FormularioAcceso({ titulo, descripcion, enviarEtiqueta, alterno,
                 >
                   {enviarEtiqueta}
                 </Button>
-                <Text fontSize="sm" color="marca.carbon">
+                <Text fontSize="sm" color="fg">
                   {alterno.texto}{" "}
                   <Text
                     asChild
                     display="inline"
                     fontSize="sm"
                     fontWeight="600"
-                    color="marca.carbon"
+                    color="fg"
                     textDecoration="underline"
                     textUnderlineOffset="3px"
-                    textDecorationColor="marca.carbon"
-                    _hover={{ color: "marca.carbon", textDecorationColor: "marca.carbon" }}
-                    _active={{ color: "marca.carbon", textDecorationColor: "marca.carbon" }}
+                    textDecorationColor="fg"
+                    _hover={{ color: "fg", textDecorationColor: "fg" }}
+                    _active={{ color: "fg", textDecorationColor: "fg" }}
                   >
                     <Link to={alterno.to}>{alterno.etiqueta}</Link>
                   </Text>

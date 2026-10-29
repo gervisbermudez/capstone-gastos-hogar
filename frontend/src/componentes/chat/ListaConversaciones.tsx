@@ -83,18 +83,18 @@ export function ListaConversaciones({
                     textAlign="left"
                     disabled={bloqueado}
                     aria-current={activo ? "true" : undefined}
-                    bg={activo ? "marca.carbon" : "transparent"}
-                    color={activo ? "marca.papel" : "marca.carbon"}
+                    bg={activo ? "fg" : "transparent"}
+                    color={activo ? "fg.sobreSolido" : "fg"}
                     _hover={
                       activo
-                        ? { bg: "marca.carbon", color: "marca.papel" }
-                        : { bg: "marca.papel", color: "marca.carbon" }
+                        ? { bg: "fg", color: "fg.sobreSolido" }
+                        : { bg: "bg.hover", color: "fg" }
                     }
                     _disabled={{
                       opacity: activo ? 1 : 0.72,
                       cursor: "not-allowed",
-                      bg: activo ? "marca.carbon" : "transparent",
-                      color: activo ? "marca.papel" : "marca.carbon",
+                      bg: activo ? "fg" : "transparent",
+                      color: activo ? "fg.sobreSolido" : "fg",
                     }}
                     onClick={() => onAbrir(item.thread_id)}
                   >
@@ -109,7 +109,7 @@ export function ListaConversaciones({
                         {item.titulo.trim() || "Sin título"}
                       </Text>
                       {item.cuando ? (
-                        <Text as="span" display="block" fontSize="xs" color={activo ? "marca.lino" : "fg.muted"}>
+                        <Text as="span" display="block" fontSize="xs" color={activo ? "bg" : "fg.muted"}>
                           {item.cuando}
                         </Text>
                       ) : null}
@@ -126,20 +126,20 @@ export function ListaConversaciones({
   return (
     <Box h="100%" minH={0} display="flex" flexDirection="column" overflow="hidden">
       <Box ps={3} pe={conCierre ? 12 : 3} pt={4} pb={2}>
-        <Text fontFamily="heading" fontWeight="semibold" fontSize="lg" color="marca.carbon">
+        <Text fontFamily="heading" fontWeight="semibold" fontSize="lg" color="fg">
           Conversaciones
         </Text>
         <Button
           type="button"
           size="sm"
           variant="solid"
-          bg="marca.carbon"
-          color="marca.papel"
+          bg="fg"
+          color="fg.sobreSolido"
           borderRadius="full"
           w="100%"
           mt={3}
-          _hover={{ bg: "marca.grafito", color: "marca.papel" }}
-          _disabled={{ opacity: 0.72, bg: "marca.carbon", color: "marca.papel" }}
+          _hover={{ bg: "solido.hover", color: "fg.sobreSolido" }}
+          _disabled={{ opacity: 0.72, bg: "fg", color: "fg.sobreSolido" }}
           disabled={bloqueado}
           onClick={onNueva}
         >
@@ -150,9 +150,9 @@ export function ListaConversaciones({
         <Input
           size="sm"
           borderRadius="full"
-          bg="marca.papel"
-          color="marca.carbon"
-          borderColor="rgba(28, 28, 26, 0.12)"
+          bg="bg.panel"
+          color="fg"
+          borderColor="borde"
           _placeholder={{ color: "fg.muted" }}
           placeholder="Buscar"
           aria-label="Buscar conversaciones"

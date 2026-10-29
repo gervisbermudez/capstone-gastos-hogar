@@ -5,6 +5,8 @@ const UUID = "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-
 
 const CITA = new RegExp(`^\\[comprobante (${UUID})((?:\\s*\\|[^\\]]*)?)\\]\\s*`, "i")
 
+const PREFIJO_CITA = new RegExp(`^\\[comprobante\\s+${UUID}\\b`, "i")
+
 const CATEGORIAS = new Set<string>(Object.keys(ETIQUETA_CATEGORIA))
 
 function parte(valor: string | undefined, vacio: string): string {
@@ -49,7 +51,12 @@ export function fotoDesdeCita(texto: string): FotoAdjunto | null {
   return { id, titulo, detalle }
 }
 
+export function esTituloCita(titulo: string): boolean {
+  return PREFIJO_CITA.test(titulo.trim())
+}
+
 export function tituloVisible(titulo: string): string {
   const visible = textoVisible(titulo).trim()
-  return visible || "Conversación"
+  if (!visible || esTituloCita(visible)) return "Conversación"
+  return visible
 }

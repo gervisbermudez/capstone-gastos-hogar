@@ -42,12 +42,21 @@ function textoConteo(valor: number | null): string {
 
 function TarjetaCifra({ etiqueta, valor }: { etiqueta: string; valor: string }) {
   return (
-    <Stack gap={1} h="100%" bg="marca.papel" borderRadius="20px" boxShadow={SOMBRA} px={4} py={3}>
+    <Stack
+      gap={1}
+      h="100%"
+      bg="bg.panel"
+      borderRadius="20px"
+      boxShadow={SOMBRA}
+      px={4}
+      py={3}
+      _dark={{ borderWidth: "1px", borderColor: "borde" }}
+    >
       <Text fontSize="xs" color="fg.muted">
         {etiqueta}
       </Text>
       <Text
-        color="marca.carbon"
+        color="fg"
         fontFamily="inherit"
         fontSize={{ base: "1.35rem", md: "1.5rem" }}
         fontWeight="medium"
@@ -67,7 +76,7 @@ function Leyenda({ fondo, etiqueta, porcentaje }: { fondo: string; etiqueta: str
       <Box w="8px" h="8px" borderRadius="full" bg={fondo} flexShrink={0} />
       <Text fontSize="xs" color="fg.muted" whiteSpace="nowrap">
         {etiqueta}{" "}
-        <Text as="span" color="marca.carbon" fontWeight="medium" fontVariantNumeric="tabular-nums">
+        <Text as="span" color="fg" fontWeight="medium" fontVariantNumeric="tabular-nums">
           {porcentaje}%
         </Text>
       </Text>
@@ -90,19 +99,22 @@ function BarraParticipacion({ confirmados, borradores }: { confirmados: number; 
       <Flex
         aria-hidden="true"
         h="6px"
-        w="100%"
-        maxW="15rem"
-        flex="1 1 15rem"
+        flexShrink={0}
         borderRadius="full"
         overflow="hidden"
-        bg="marca.alabastro"
+        bg="bg.subtle"
+        css={{ width: "min(15rem, 100%)" }}
       >
-        <Box h="100%" flexShrink={0} w={`${(confirmados / suma) * 100}%`} bg="marca.sol" />
-        <Box h="100%" flex="1" minW={0} bg="marca.carbon" />
+        {confirmados > 0 ? (
+          <Box h="100%" flexShrink={0} w={`${(confirmados / suma) * 100}%`} bg="marca.sol" />
+        ) : null}
+        {borradores > 0 ? (
+          <Box h="100%" flexShrink={0} w={`${(borradores / suma) * 100}%`} bg="fg" />
+        ) : null}
       </Flex>
       <Flex align="center" gap={3} wrap="wrap">
         <Leyenda fondo="marca.sol" etiqueta="Confirmados" porcentaje={pctConfirmados} />
-        <Leyenda fondo="marca.carbon" etiqueta="Borradores" porcentaje={pctBorradores} />
+        <Leyenda fondo="fg" etiqueta="Borradores" porcentaje={pctBorradores} />
       </Flex>
     </Flex>
   )
@@ -128,7 +140,7 @@ export function ResumenCifras({
       <Stack gap={2}>
         <Heading
           as="h1"
-          color="marca.carbon"
+          color="fg"
           fontFamily="inherit"
           fontSize={{ base: "1.75rem", md: "2rem" }}
           fontWeight="medium"

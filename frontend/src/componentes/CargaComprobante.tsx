@@ -92,12 +92,12 @@ export function CargaComprobante({
           py={{ base: 10, md: 14 }}
           css={{
             borderRadius: "20px",
-            bg: "marca.alabastro",
+            bg: "bg.subtle",
             borderWidth: "2px",
             borderStyle: "dashed",
-            borderColor: "rgba(28, 28, 26, 0.2)",
-            color: "marca.carbon",
-            _hover: { bg: "marca.lino" },
+            borderColor: "borde",
+            color: "fg",
+            _hover: { bg: "bg" },
             _dragging: {
               bg: "rgba(245, 203, 92, 0.22)",
               borderStyle: "solid",
@@ -106,7 +106,7 @@ export function CargaComprobante({
           }}
         >
           <FileUpload.DropzoneContent>
-            <Text color="marca.carbon" fontSize="lg" fontWeight="medium">
+            <Text color="fg" fontSize="lg" fontWeight="medium">
               Arrastrá el comprobante o elegí un archivo
             </Text>
             <Text color="fg.muted" fontSize="sm">

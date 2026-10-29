@@ -18,6 +18,9 @@ from .texto import sin_cita_comprobante
 
 _PERIODO = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 _MONTO = re.compile(r"^\d+\.\d{2}$")
+_UUID_DOCUMENTO = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
 _CATEGORIAS = {"servicios", "expensas", "alquiler"}
 _CLAVES_CAMPOS = (
     "proveedor",
@@ -31,6 +34,10 @@ _CLAVES_CAMPOS = (
 
 class EmailDuplicado(Exception):
     """El email ya existe. La ruta lo traduce a 409."""
+
+
+class NombreDuplicado(Exception):
+    """El nombre ya existe para esa persona. La ruta lo traduce a 409."""
 
 
 def _ahora() -> str:
@@ -326,6 +333,63 @@ async def buscar_usuario_por_id(user_id: str) -> dict | None:
     }
 
 
+async def actualizar_email(*, user_id: str, email: str) -> str:
+    """Deja el correo normalizado. El mismo usuario no choca consigo mismo."""
+    correo = _email(email)
+    async with db.conectar() as conn:
+        await conn.execute("BEGIN IMMEDIATE")
+        try:
+            cursor = await conn.execute(
+                "SELECT user_id FROM usuarios WHERE email = ?",
+                (correo,),
+            )
+            fila = await cursor.fetchone()
+            if fila is not None and fila["user_id"] != user_id:
+                await _rollback(conn)
+                raise EmailDuplicado(correo)
+            await conn.execute(
+                "UPDATE usuarios SET email = ? WHERE user_id = ?",
+                (correo, user_id),
+            )
+            await conn.commit()
+        except EmailDuplicado:
+            raise
+        except Exception as exc:
+            await _rollback(conn)
+            if exc.__class__.__name__ != "IntegrityError":
+                raise
+            raise EmailDuplicado(correo) from exc
+    return correo
+
+
+async def actualizar_password_hash(*, user_id: str, password_hash: str) -> None:
+    if not isinstance(password_hash, str) or not password_hash:
+        raise ValueError("Falta el hash")
+    async with db.conectar() as conn:
+        await conn.execute(
+            "UPDATE usuarios SET password_hash = ? WHERE user_id = ?",
+            (password_hash, user_id),
+        )
+
+
+async def eliminar_usuario(*, user_id: str) -> None:
+    """Borra la cuenta y lo que apunta a ella. Una sola transacción."""
+    async with db.conectar() as conn:
+        await conn.execute("BEGIN IMMEDIATE")
+        try:
+            await conn.execute("DELETE FROM mensajes WHERE user_id = ?", (user_id,))
+            await conn.execute("DELETE FROM borradores WHERE user_id = ?", (user_id,))
+            await conn.execute("DELETE FROM comprobantes WHERE user_id = ?", (user_id,))
+            # El catálogo también referencia usuarios. Sin este DELETE la baja
+            # falla por la foreign key.
+            await conn.execute("DELETE FROM categorias WHERE user_id = ?", (user_id,))
+            await conn.execute("DELETE FROM usuarios WHERE user_id = ?", (user_id,))
+            await conn.commit()
+        except Exception:
+            await _rollback(conn)
+            raise
+
+
 async def guardar_borrador(*, user_id: str, texto: str, campos: dict, advertencias: list[str]) -> str:
     if not isinstance(advertencias, list) or any(not isinstance(item, str) for item in advertencias):
         raise ValueError("advertencias tiene que ser una lista de strings")
@@ -353,7 +417,7 @@ async def obtener_documento(*, user_id: str, documento_id: str) -> dict | None:
     async with db.conectar() as conn:
         cursor = await conn.execute(
             """
-            SELECT id, texto, campos_json, advertencias_json
+            SELECT id, texto, campos_json, advertencias_json, creado_en
             FROM borradores
             WHERE id = ? AND user_id = ?
             """,
@@ -361,16 +425,20 @@ async def obtener_documento(*, user_id: str, documento_id: str) -> dict | None:
         )
         borrador = await cursor.fetchone()
         if borrador is not None:
-            return {
+            datos = {
                 "id": borrador["id"],
                 "estado": "borrador",
                 "campos": _campos_publicos(json.loads(borrador["campos_json"])),
                 "texto": borrador["texto"],
                 "advertencias": json.loads(borrador["advertencias_json"]),
             }
+            creado = borrador["creado_en"]
+            if isinstance(creado, str) and creado:
+                datos["creado_en"] = creado
+            return datos
         cursor = await conn.execute(
             f"""
-            SELECT {_COLUMNAS_PUBLICAS}
+            SELECT {_COLUMNAS_PUBLICAS}, confirmado_en
             FROM comprobantes
             WHERE id = ? AND user_id = ?
             """,
@@ -379,7 +447,11 @@ async def obtener_documento(*, user_id: str, documento_id: str) -> dict | None:
         confirmado = await cursor.fetchone()
     if confirmado is None:
         return None
-    return _documento_confirmado(confirmado, con_texto=False)
+    datos = _documento_confirmado(confirmado, con_texto=False)
+    marca = confirmado["confirmado_en"]
+    if isinstance(marca, str) and marca:
+        datos["confirmado_en"] = marca
+    return datos
 
 
 async def listar_documentos(*, user_id: str) -> list[dict]:
@@ -864,6 +936,49 @@ async def listar_hilos(*, user_id: str, limite: int = 30) -> list[dict]:
     ]
 
 
+async def listar_hilos_de_documento(*, user_id: str, documento_id: str) -> list[dict] | None:
+    if _UUID_DOCUMENTO.fullmatch(documento_id) is None:
+        return None
+    if await obtener_documento(user_id=user_id, documento_id=documento_id) is None:
+        return None
+    cita = f"[comprobante {documento_id}"
+    async with db.conectar() as conn:
+        cursor = await conn.execute(
+            """
+            SELECT thread_id, MAX(creado_en) AS actualizado_en, MIN(id) AS primero
+            FROM mensajes
+            WHERE user_id = ?
+              AND thread_id IN (
+                  SELECT DISTINCT thread_id
+                  FROM mensajes
+                  WHERE user_id = ? AND instr(lower(texto), lower(?)) > 0
+              )
+            GROUP BY thread_id
+            ORDER BY actualizado_en DESC, thread_id ASC
+            LIMIT 20
+            """,
+            (user_id, user_id, cita),
+        )
+        filas = await cursor.fetchall()
+        if not filas:
+            return []
+        ids = [fila["primero"] for fila in filas]
+        marcas = ",".join("?" for _ in ids)
+        cursor = await conn.execute(
+            f"SELECT id, texto FROM mensajes WHERE user_id = ? AND id IN ({marcas})",
+            (user_id, *ids),
+        )
+        textos = {fila["id"]: fila["texto"] for fila in await cursor.fetchall()}
+    return [
+        {
+            "thread_id": fila["thread_id"],
+            "titulo": _titulo(textos.get(fila["primero"]) or ""),
+            "actualizado_en": fila["actualizado_en"],
+        }
+        for fila in filas
+    ]
+
+
 async def obtener_hilo(*, user_id: str, thread_id: str) -> dict | None:
     if not user_id or not thread_id:
         return None
@@ -887,3 +1002,85 @@ async def obtener_hilo(*, user_id: str, thread_id: str) -> dict | None:
             for fila in filas
         ],
     }
+
+
+def _categoria_publica(fila) -> dict:
+    return {
+        "id": fila["id"],
+        "nombre": fila["nombre"],
+        "descripcion": fila["descripcion"],
+    }
+
+
+async def listar_categorias(*, user_id: str) -> list[dict]:
+    async with db.conectar() as conn:
+        cursor = await conn.execute(
+            """
+            SELECT id, nombre, descripcion
+            FROM categorias
+            WHERE user_id = ?
+            ORDER BY nombre COLLATE NOCASE
+            """,
+            (user_id,),
+        )
+        filas = await cursor.fetchall()
+    return [_categoria_publica(fila) for fila in filas]
+
+
+async def crear_categoria(*, user_id: str, nombre: str, descripcion: str | None) -> dict:
+    categoria_id = str(uuid.uuid4())
+    async with db.conectar() as conn:
+        try:
+            await conn.execute(
+                """
+                INSERT INTO categorias (id, user_id, nombre, descripcion, creado_en)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (categoria_id, user_id, nombre, descripcion, _ahora()),
+            )
+        except Exception as exc:
+            if exc.__class__.__name__ != "IntegrityError":
+                raise
+            raise NombreDuplicado(nombre) from exc
+    return {"id": categoria_id, "nombre": nombre, "descripcion": descripcion}
+
+
+async def actualizar_categoria(
+    *, user_id: str, categoria_id: str, nombre: str, descripcion: str | None
+) -> dict | None:
+    async with db.conectar() as conn:
+        try:
+            await conn.execute(
+                """
+                UPDATE categorias
+                SET nombre = ?, descripcion = ?
+                WHERE id = ? AND user_id = ?
+                """,
+                (nombre, descripcion, categoria_id, user_id),
+            )
+        except Exception as exc:
+            if exc.__class__.__name__ != "IntegrityError":
+                raise
+            raise NombreDuplicado(nombre) from exc
+        cursor = await conn.execute("SELECT changes()")
+        fila = await cursor.fetchone()
+        # SQLite no cuenta la fila si los valores no cambian. Eso no es un 404.
+        if fila is None or int(fila[0]) != 1:
+            existe = await conn.execute(
+                "SELECT 1 FROM categorias WHERE id = ? AND user_id = ?",
+                (categoria_id, user_id),
+            )
+            if await existe.fetchone() is None:
+                return None
+    return {"id": categoria_id, "nombre": nombre, "descripcion": descripcion}
+
+
+async def borrar_categoria(*, user_id: str, categoria_id: str) -> bool:
+    async with db.conectar() as conn:
+        await conn.execute(
+            "DELETE FROM categorias WHERE id = ? AND user_id = ?",
+            (categoria_id, user_id),
+        )
+        cursor = await conn.execute("SELECT changes()")
+        fila = await cursor.fetchone()
+    return bool(fila and int(fila[0]) == 1)

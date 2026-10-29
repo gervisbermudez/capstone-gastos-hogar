@@ -6,6 +6,7 @@ Con ``SQLITE_PATH`` vacío eso es ``api/data/archivos/{user_id}/{id}``.
 from __future__ import annotations
 
 import asyncio
+import shutil
 from pathlib import Path
 
 from .db import ruta_base
@@ -75,5 +76,22 @@ async def borrar_archivo(user_id: str, documento_id: str) -> None:
 
     def _borrar() -> None:
         ruta.unlink(missing_ok=True)
+
+    await asyncio.to_thread(_borrar)
+
+
+async def borrar_directorio_usuario(user_id: str) -> None:
+    """Borra ``archivos/{user_id}`` si es un directorio hijo de la base."""
+    base = directorio_archivos().resolve()
+    try:
+        destino = (base / _segmento(user_id)).resolve()
+    except ValueError:
+        return
+    if destino == base or not destino.is_relative_to(base):
+        return
+
+    def _borrar() -> None:
+        if destino.is_dir():
+            shutil.rmtree(destino)
 
     await asyncio.to_thread(_borrar)
