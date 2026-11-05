@@ -42,10 +42,11 @@ from app.supervisor import (
     aplicar_decision,
     clasificar_pregunta,
     es_comparacion,
+    es_pregunta_autor,
     nodo_sintesis,
     nodo_supervisor,
 )
-from app.texto import extraer_texto
+from app.texto import extraer_texto, id_comprobante_citado
 from app.worker import HiloInvalido, es_del_usuario, reclamar_hilo
 
 PREGUNTA_MONTOS = "¿Cuánto pagó de expensas en marzo?"
@@ -204,6 +205,122 @@ def test_clasificacion() -> None:
     assert (
         clasificar_pregunta("¿Qué dice la factura y cuánto pagué en marzo?") == "ambos"
     )
+
+
+CITA_EDENOR = (
+    "[comprobante 23c56088-5ea1-4079-8c1a-7f0b9e2d4a11 | Edenor | servicios | 2026-09]"
+)
+
+
+def test_quien_lo_cargo_no_es_texto_ni_montos() -> None:
+    assert es_pregunta_autor("que usuario lo cargo?") is True
+    assert es_pregunta_autor("¿Quién lo cargó?") is True
+    assert es_pregunta_autor("¿Qué usuario cargó el comprobante?") is True
+    assert es_pregunta_autor(PREGUNTA_MONTOS) is False
+    assert es_pregunta_autor(PREGUNTA_TEXTO) is False
+    assert es_pregunta_autor(PREGUNTA_LUZ) is False
+    assert clasificar_pregunta(f"{CITA_EDENOR}\nque usuario lo cargo?") == "ambiguo"
+    assert id_comprobante_citado(f"{CITA_EDENOR}\nque usuario lo cargo?") == (
+        "23c56088-5ea1-4079-8c1a-7f0b9e2d4a11"
+    )
+    assert id_comprobante_citado("que usuario lo cargo?") is None
+
+
+def test_quien_lo_cargo_sale_del_libro(monkeypatch) -> None:
+    monkeypatch.setattr("app.llm.armar_llm", lambda: _SintesisQueNoDebeCorrer())
+
+    async def _documento(*, user_id, documento_id):
+        assert user_id == USUARIO
+        assert documento_id == "23c56088-5ea1-4079-8c1a-7f0b9e2d4a11"
+        return {"id": documento_id, "autor_email": "ada@example.com"}
+
+    async def _cuenta(email):
+        assert email == "ada@example.com"
+        return {
+            "user_id": "cuenta-ada",
+            "email": email,
+            "nombre": "Ada",
+            "password_hash": "secreto",
+        }
+
+    monkeypatch.setattr("app.repositorio.obtener_documento", _documento)
+    monkeypatch.setattr("app.repositorio.buscar_usuario_por_email", _cuenta)
+    decision = nodo_supervisor(
+        {
+            "messages": [HumanMessage(content=f"{CITA_EDENOR}\nque usuario lo cargo?")],
+            "contribuciones": [
+                {
+                    "agente": "investigador",
+                    "aporte": "No se encontró información sobre qué usuario cargó el comprobante.",
+                }
+            ],
+            "pasos": 1,
+            "user_id": USUARIO,
+            "hogar_id": HOGAR,
+        }
+    )
+    assert decision["next_agent"] == "FINISH"
+    assert decision["task_completed"] is True
+    assert decision["respuesta_directa"] == "Lo cargó Ada (ada@example.com)."
+    assert "secreto" not in decision["respuesta_directa"]
+
+
+def test_quien_lo_cargo_sin_alias_usa_el_email(monkeypatch) -> None:
+    monkeypatch.setattr("app.llm.armar_llm", lambda: _SintesisQueNoDebeCorrer())
+
+    async def _documento(*, user_id, documento_id):
+        return {"autor_email": "ada@example.com"}
+
+    async def _cuenta(email):
+        return {"email": email, "nombre": None, "password_hash": "secreto", "user_id": "u"}
+
+    monkeypatch.setattr("app.repositorio.obtener_documento", _documento)
+    monkeypatch.setattr("app.repositorio.buscar_usuario_por_email", _cuenta)
+    decision = nodo_supervisor(
+        {
+            "messages": [HumanMessage(content=f"{CITA_EDENOR}\n¿Quién lo subió?")],
+            "contribuciones": [],
+            "pasos": 0,
+            "user_id": USUARIO,
+        }
+    )
+    assert decision["respuesta_directa"] == "Lo cargó ada@example.com."
+
+
+def test_quien_lo_cargo_sin_comprobante_no_inventa(monkeypatch) -> None:
+    monkeypatch.setattr("app.llm.armar_llm", lambda: _SintesisQueNoDebeCorrer())
+
+    async def _documento(*, user_id, documento_id):
+        raise AssertionError("sin cita no se consulta el libro")
+
+    monkeypatch.setattr("app.repositorio.obtener_documento", _documento)
+    decision = nodo_supervisor(
+        {
+            "messages": [HumanMessage(content="que usuario lo cargo?")],
+            "contribuciones": [],
+            "pasos": 0,
+            "user_id": USUARIO,
+        }
+    )
+    assert decision["respuesta_directa"] == "Adjuntá el comprobante para decirte quién lo cargó."
+
+
+def test_quien_lo_cargo_ajeno_no_aparece(monkeypatch) -> None:
+    monkeypatch.setattr("app.llm.armar_llm", lambda: _SintesisQueNoDebeCorrer())
+
+    async def _documento(*, user_id, documento_id):
+        return None
+
+    monkeypatch.setattr("app.repositorio.obtener_documento", _documento)
+    decision = nodo_supervisor(
+        {
+            "messages": [HumanMessage(content=f"{CITA_EDENOR}\nquién lo cargó")],
+            "contribuciones": [],
+            "pasos": 0,
+            "user_id": USUARIO,
+        }
+    )
+    assert decision["respuesta_directa"] == "No encontré ese comprobante en este hogar."
 
 
 def test_la_cita_no_cambia_la_clase() -> None:

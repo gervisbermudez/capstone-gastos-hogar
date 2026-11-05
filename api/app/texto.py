@@ -12,11 +12,24 @@ _CITA_COMPROBANTE = re.compile(
     r"(?:\s*\|[^\]]*)?\]\s*",
     re.IGNORECASE,
 )
+_ID_CITA = re.compile(
+    r"\[comprobante\s+([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
+    r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12})",
+    re.IGNORECASE,
+)
 
 
 def sin_cita_comprobante(texto: str) -> str:
     """Saca la ficha que el chat antepone a la pregunta. El resto queda igual."""
     return _CITA_COMPROBANTE.sub("", texto or "", count=1)
+
+
+def id_comprobante_citado(texto: str) -> str | None:
+    """Id de la ficha que el chat antepone. None si la pregunta no cita uno."""
+    coincidencia = _ID_CITA.search(texto or "")
+    if coincidencia is None:
+        return None
+    return coincidencia.group(1)
 
 
 def separar_canal(texto: str) -> str:

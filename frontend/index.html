@@ -3,14 +3,36 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f7f4ea" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Capstone" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <link rel="icon" href="/favicon.ico" sizes="any" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
     <title>Capstone</title>
+    <script>
+      window.__ofertaInstalar = null
+      window.addEventListener("beforeinstallprompt", function (evento) {
+        evento.preventDefault()
+        window.__ofertaInstalar = evento
+        window.dispatchEvent(new Event("capstone-instalar"))
+      })
+      window.addEventListener("appinstalled", function () {
+        window.__ofertaInstalar = null
+        window.__aplicacionInstalada = true
+        window.dispatchEvent(new Event("capstone-instalar"))
+      })
+    </script>
     <script>
       try {
         if (localStorage.getItem("gastos.tema") === "oscuro") {
           document.documentElement.classList.add("dark")
           document.documentElement.style.colorScheme = "dark"
+          var barra = document.querySelector('meta[name="theme-color"]')
+          if (barra) barra.setAttribute("content", "#1c1c1a")
         }
       } catch (e) {}
     </script>

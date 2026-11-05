@@ -1,4 +1,4 @@
-# Desde capstone/: ./run.sh
+# Desde la raíz de este repositorio: ./run.sh
 # Levanta Redis, Phoenix, la API (el worker corre en el mismo proceso) y el frontend.
 # Secretos, índice y nombre de modelo solo en api/.env. Este archivo no los trae.
 
@@ -56,11 +56,13 @@ services:
   frontend:
     image: node:22-bookworm-slim
     working_dir: /app
+    # El volumen de node_modules no ve un paquete nuevo hasta npm ci.
+    # El lockfile vive en el bind mount; se compara con la copia del volumen.
     command:
       [
         "sh",
         "-c",
-        "if [ ! -x node_modules/.bin/vite ]; then npm ci; fi && exec npx vite --host 0.0.0.0 --port 5173 --strictPort",
+        "if [ ! -x node_modules/.bin/vite ] || [ package-lock.json -nt node_modules/.package-lock.json ]; then npm ci; fi && exec npx vite --host 0.0.0.0 --port 5173 --strictPort",
       ]
     ports:
       - "5173:5173"

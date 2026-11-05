@@ -4,6 +4,7 @@ import { Link, Navigate } from "react-router"
 import { ErrorApi } from "../api/cliente"
 import { EsqueletoMarco } from "../componentes/esqueleto"
 import { Logotipo } from "../componentes/Logotipo"
+import { BotonInstalar } from "../instalar"
 import { entrada } from "../movimiento"
 import { useSesion } from "../sesion"
 
@@ -155,6 +156,7 @@ export function FormularioAcceso({ titulo, descripcion, enviarEtiqueta, alterno,
             </form>
           </Card.Body>
         </Card.Root>
+        <BotonInstalar completo />
       </Stack>
     </Center>
   )

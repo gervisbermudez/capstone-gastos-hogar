@@ -9,6 +9,7 @@ import { DURACION, EASING, entrada } from "../movimiento"
 import { BarraLateral, type Seccion } from "./BarraLateral"
 import { Campana } from "./Campana"
 import { EsqueletoMarco } from "./esqueleto"
+import { BotonInstalar } from "../instalar"
 
 function esRutaDeAdministrador(pathname: string): boolean {
   return pathname === "/categorias" || pathname === "/chat" || pathname.startsWith("/chat/")
@@ -109,6 +110,7 @@ export function MarcoPrivado() {
                 </Box>
                 <Box display={{ base: "none", md: "block" }} />
                 <Flex align="center" gap={2}>
+                  <BotonInstalar />
                   <Switch.Root
                     size="sm"
                     checked={oscuro}

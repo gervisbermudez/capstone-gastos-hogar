@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 
 const CLAVE = "gastos.tema"
+const COLOR_BARRA = { claro: "#f7f4ea", oscuro: "#1c1c1a" } as const
 
 type Modo = "claro" | "oscuro"
 
@@ -21,10 +22,17 @@ function modoInicial(): Modo {
   }
 }
 
-function aplicarModo(modo: Modo) {
+function pintarDocumento(modo: Modo) {
   const oscuro = modo === "oscuro"
   document.documentElement.classList.toggle("dark", oscuro)
   document.documentElement.style.colorScheme = oscuro ? "dark" : "light"
+  document
+    .querySelector('meta[name="theme-color"]')
+    ?.setAttribute("content", oscuro ? COLOR_BARRA.oscuro : COLOR_BARRA.claro)
+}
+
+function aplicarModo(modo: Modo) {
+  pintarDocumento(modo)
   try {
     localStorage.setItem(CLAVE, modo)
   } catch {
@@ -37,9 +45,7 @@ export function ProveedorTema({ children }: { children: ReactNode }) {
   const modoRef = useRef(modo)
 
   useEffect(() => {
-    const oscuro = modoRef.current === "oscuro"
-    document.documentElement.classList.toggle("dark", oscuro)
-    document.documentElement.style.colorScheme = oscuro ? "dark" : "light"
+    pintarDocumento(modoRef.current)
   }, [])
 
   const alternar = useCallback(() => {

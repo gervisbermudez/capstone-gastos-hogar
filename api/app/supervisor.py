@@ -6,6 +6,7 @@ factura va al investigador. No se exigen los dos si con uno alcanza.
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import Literal
 
@@ -15,7 +16,9 @@ from pydantic import BaseModel, Field, ValidationError
 
 from .agents.bucle import correr_async
 from .state import AgentState, aportes_del_turno, pregunta_actual
-from .texto import extraer_texto, sin_cita_comprobante
+from .texto import extraer_texto, id_comprobante_citado, sin_cita_comprobante
+
+logger = logging.getLogger(__name__)
 
 MAX_PASOS = 6
 MAX_POR_AGENTE = 2
@@ -59,6 +62,24 @@ _MONTOS = (
 )
 _PAGO = re.compile(r"\bpago\b")
 _COMPARACION = ("compará", "compara", "comparar", "contra", "versus", " vs ", "diferencia")
+# Quién subió el archivo. No está en el texto de la factura: está en el libro.
+_AUTOR = re.compile(
+    r"\b(?:"
+    r"qui[eé]n(?:es)? lo carg[oó]"
+    r"|qui[eé]n(?:es)? la carg[oó]"
+    r"|qui[eé]n(?:es)? lo subi[oó]"
+    r"|qui[eé]n(?:es)? la subi[oó]"
+    r"|qui[eé]n(?:es)? carg[oó]"
+    r"|qui[eé]n(?:es)? subi[oó]"
+    r"|qu[eé] usuario lo carg[oó]"
+    r"|qu[eé] usuario la carg[oó]"
+    r"|qu[eé] usuario carg[oó]"
+    r"|usuario que lo carg[oó]"
+    r"|usuario que la carg[oó]"
+    r"|usuario que carg[oó]"
+    r")\b",
+    re.IGNORECASE,
+)
 
 
 class DecisionSupervisor(BaseModel):
@@ -107,6 +128,48 @@ def es_comparacion(pregunta: str) -> bool:
     """True si la pregunta pide contrastar dos períodos o totales."""
     texto = sin_cita_comprobante(pregunta or "").lower()
     return any(marca in texto for marca in _COMPARACION)
+
+
+def es_pregunta_autor(pregunta: str) -> bool:
+    """True si preguntan qué cuenta cargó el comprobante, no qué dice el texto."""
+    return _AUTOR.search(sin_cita_comprobante(pregunta or "")) is not None
+
+
+def _frase_autor(email: str, nombre: object) -> str:
+    alias = nombre.strip() if isinstance(nombre, str) else ""
+    if alias:
+        return f"Lo cargó {alias} ({email})."
+    return f"Lo cargó {email}."
+
+
+async def _respuesta_autor(state: AgentState) -> str:
+    """Email de quien cargó el comprobante citado. No llama al modelo."""
+    from .repositorio import buscar_usuario_por_email, obtener_documento
+
+    documento_id = id_comprobante_citado(pregunta_actual(state))
+    if not documento_id:
+        return "Adjuntá el comprobante para decirte quién lo cargó."
+    user_id = str(state.get("user_id") or "").strip()
+    if not user_id:
+        return "No pude identificar la cuenta de esta consulta."
+    try:
+        documento = await obtener_documento(user_id=user_id, documento_id=documento_id)
+    except Exception as exc:
+        logger.warning("autor del comprobante falló (%s).", type(exc).__name__)
+        return "No pude consultar quién cargó ese comprobante."
+    if not isinstance(documento, dict):
+        return "No encontré ese comprobante en este hogar."
+    email = documento.get("autor_email")
+    if not isinstance(email, str) or not email.strip():
+        return "Ese comprobante no tiene registrado quién lo cargó."
+    correo = email.strip()
+    try:
+        cuenta = await buscar_usuario_por_email(correo)
+    except Exception as exc:
+        logger.warning("alias del autor falló (%s).", type(exc).__name__)
+        cuenta = None
+    nombre = cuenta.get("nombre") if isinstance(cuenta, dict) else None
+    return _frase_autor(correo, nombre)
 
 
 def _ultimo(contribuciones: list[dict], agente: str) -> str:
@@ -199,6 +262,15 @@ def nodo_supervisor(state: AgentState) -> dict:
 
 
 async def _decidir(state: AgentState) -> dict:
+    pregunta = pregunta_actual(state)
+    if es_pregunta_autor(pregunta) and clasificar_pregunta(pregunta) == "ambiguo":
+        return {
+            "next_agent": "FINISH",
+            "task_completed": True,
+            "razon": "La pregunta es quién cargó el comprobante. Sale del libro, no del texto.",
+            "respuesta_directa": await _respuesta_autor(state),
+        }
+
     if state.get("pasos", 0) >= MAX_PASOS:
         return {
             "next_agent": "FINISH",
@@ -207,7 +279,6 @@ async def _decidir(state: AgentState) -> dict:
             "respuesta_directa": "",
         }
 
-    pregunta = pregunta_actual(state)
     intent = clasificar_pregunta(pregunta)
     if intent == "ambiguo":
         contribuciones = aportes_del_turno(state)
