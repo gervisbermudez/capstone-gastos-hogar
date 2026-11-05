@@ -1,5 +1,7 @@
 # API de gastos del hogar
 
+El comando de la entrega es `./run.sh` en la raíz del repositorio. Esta página es para trabajar solo la API.
+
 FastAPI guarda comprobantes, el libro confirmado y las consultas del chat.
 `POST /tasks` no espera al modelo: anota el pedido, devuelve un `job_id` y
 un worker del mismo proceso corre el grafo. El estado se lee con

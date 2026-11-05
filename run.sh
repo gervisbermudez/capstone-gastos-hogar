@@ -27,8 +27,8 @@ export CAPSTONE_PHOENIX_PORT="$(puerto_libre 6006)"
 
 if [[ ! -f api/.env ]]; then
   cat <<'EOF'
-Falta capstone/api/.env.
-Crearlo a partir del ejemplo, sin copiar pre-entrega-7-api/.env ni ninguna clave:
+Falta api/.env.
+Crearlo a partir del ejemplo, sin copiar un .env de otra entrega ni ninguna clave:
 
   cp api/.env.example api/.env
 

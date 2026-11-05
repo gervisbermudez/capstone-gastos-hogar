@@ -1,20 +1,31 @@
-# Capstone
+# Gastos del hogar
 
-Asistente de gastos del hogar. Una persona carga comprobantes, confirma los montos y pregunta por sus gastos. Otra persona no ve esos datos. El contrato está en [`FUENTE-DE-LA-VERDAD.md`](FUENTE-DE-LA-VERDAD.md). Este archivo solo dice cómo levantar y probar. No lo reemplaza.
+Sistema de IA para registrar comprobantes de un hogar y preguntar por ellos. Una persona carga una factura, confirma el monto y consulta en el chat. Quien no pertenece a ese hogar no ve esos datos.
 
-Los totales salen de SQL. El texto de las facturas sale del índice. No se mezclan.
+El libro de montos está en SQLite. El texto de las facturas está en un índice (Pinecone o, si no responde, BM25). No se mezclan: un total sale de SQL; una pregunta sobre qué dice una factura sale del índice.
 
-- SQLite guarda usuarios, borradores y montos confirmados. El dashboard (`GET /resumen`) y el analista (`consultar_gastos`) suman ese libro.
-- El índice (Pinecone o, si no responde, BM25) guarda el texto del comprobante y la metadata `user_id`, categoría, período y proveedor. Lo usa el investigador. Una pregunta sobre qué dice una factura no se responde solo con SQL.
+Este repositorio es la entrega final del programa. La rúbrica oficial y el orden de revisión para un agente están en [`docs/evaluacion.md`](docs/evaluacion.md). El contrato de producto, que manda sobre los planes, está en [`FUENTE-DE-LA-VERDAD.md`](FUENTE-DE-LA-VERDAD.md).
 
-## Cómo levantar
+## Qué integra
 
-Hace falta Docker y, para la carga de prueba, el virtualenv de la API (Python 3.12).
+| Capa | Dónde | Qué hace |
+| --- | --- | --- |
+| API | FastAPI, `api/app/main.py` | Auth, comprobantes, resumen y consultas. `POST /tasks` responde 202 y no espera al modelo. |
+| Cola y memoria | Redis 8 | Jobs y checkpointer de LangGraph (`RedisSaver`). |
+| Agentes | `api/app/graph.py` | Un supervisor delega en un investigador y un analista. No se hablan entre sí. |
+| RAG | `api/app/rag.py` | Búsqueda híbrida. El `user_id` y el hogar los pone el sistema, no el modelo. |
+| Trazas | Arize Phoenix | Proyecto `gastos-hogar`. LangSmith queda disponible si hay clave. |
+| Interfaz | `frontend/` | SPA. El navegador solo habla HTTP con la API. |
 
-Secretos, nombre de índice y nombre de modelo viven solo en `api/.env`. No están en este repositorio. Si el archivo no existe:
+Login, hogares, gráficos y lectura de fotos están encima de esas piezas. La rúbrica no los pide y no los penaliza.
+
+## Cómo levantarlo
+
+Hace falta Docker. Para la carga de prueba, Python 3.12.
+
+Los secretos, el nombre del índice y el nombre del modelo viven solo en `api/.env`. No están en este repositorio.
 
 ```bash
-cd capstone
 cp api/.env.example api/.env
 ```
 
@@ -24,54 +35,54 @@ Completar ahí, con valores propios:
 - `LLM_PROVIDER` (`openai` o `gemini`)
 - `OPENAI_API_KEY` y `OPENAI_MODEL`, o `GOOGLE_API_KEY` y `GEMINI_MODEL`
 
-`PINECONE_API_KEY` e `INDEX_NAME` son opcionales. Si Pinecone no responde, la búsqueda sigue en BM25. No copiar `pre-entrega-7-api/.env`.
+`PINECONE_API_KEY`, `INDEX_NAME` y `EMBEDDING_MODEL` son opcionales. Si Pinecone no responde, la búsqueda sigue en BM25. El modelo de embeddings, si se usa, tiene que ser de 384 dimensiones.
 
-Un solo comando, desde `capstone/`:
+Un solo comando, desde la raíz de este repositorio:
 
 ```bash
 ./run.sh
 ```
 
-Levanta cuatro servicios:
+Eso ejecuta `docker compose up -d --build` y espera a Phoenix y a `GET /health`.
 
 | Servicio | Dónde | Para qué |
 | --- | --- | --- |
-| Redis 8 | `localhost:6379` | Cola de jobs y checkpointer de LangGraph |
+| Redis 8 | `localhost:6379` | Cola de jobs y checkpointer |
 | Phoenix | http://localhost:6006 | Trazas. Proyecto `gastos-hogar` |
 | API | http://localhost:8000/docs | FastAPI. El worker corre en el mismo proceso |
-| Frontend | http://localhost:5173 | SPA. El navegador llama a `http://localhost:8000` |
+| Frontend | http://localhost:5173 | SPA. Llama a `http://localhost:8000` |
 
-Si el 6379 o el 6006 ya los usa otro proceso, `./run.sh` publica el siguiente puerto libre y lo imprime. Adentro de la red la API sigue usando `redis:6379` y `phoenix:6006`. El frontend y la API no se mueven: CORS y `VITE_API_URL` dependen de 5173 y 8000.
+Si el 6379 o el 6006 ya están ocupados, `./run.sh` publica el siguiente puerto libre y lo imprime. Dentro de la red la API sigue usando `redis:6379` y `phoenix:6006`. La API y el frontend no se mueven: CORS y `VITE_API_URL` dependen de 8000 y 5173.
 
-`GET /health` responde `{"status":"ok"}` cuando Redis contesta. El compose fija `FRONTEND_ORIGIN=http://localhost:5173`, `REDIS_URL` y el collector de Phoenix en la red de Docker. Esas variables pisan las del `.env` porque dentro del contenedor `localhost` no es el host.
+`GET /health` responde `{"status":"ok"}` cuando Redis contesta. El compose fija `FRONTEND_ORIGIN`, `REDIS_URL`, `PHOENIX_PROJECT=gastos-hogar` y el collector de Phoenix. Esas variables pisan las del `.env` porque, dentro del contenedor, `localhost` no es el host.
 
-El `docker-compose.yml` que está en `api/` es el de la copia de la pre-entrega: no levanta el frontend ni la API por defecto. El comando de esta entrega es `./run.sh` en esta carpeta.
+`api/docker-compose.yml` es una copia de una pre-entrega. No levanta el frontend ni es el comando de esta entrega.
 
-## Cómo probar
+## Cómo probar las cinco consultas
 
-Con la API ya en marcha y el `.env` completo:
+Con la API en marcha y `api/.env` completo:
 
 ```bash
 api/.venv/bin/python api/scripts/carga.py
 ```
 
-El script registra dos personas, confirma comprobantes por la API y hace cinco `POST /tasks` (responden 202, sin esperar al modelo):
+Si el virtualenv no existe, crearlo con Python 3.12 dentro de `api/` (`python3.12 -m venv .venv` y `pip install -r requirements.txt`). El script no inventa trazas: sin `JWT_SECRET` no hay registro; sin la clave y el modelo, la lectura del PDF responde 502 y el job queda `FAILED`.
 
-1. Ada pregunta cuánto pagó de expensas en marzo. Tiene que ir al analista y al libro SQL.
+El script registra dos personas, confirma comprobantes por la API y hace cinco `POST /tasks` (responden 202):
+
+1. Ada pregunta cuánto pagó de expensas en marzo. Analista y libro SQL.
 2. Ada compara la luz de enero contra febrero. Analista y calculadora.
-3. Ada pregunta qué dice la factura de alquiler sobre el ajuste. Tiene que ir al investigador y al índice.
+3. Ada pregunta qué dice la factura de alquiler sobre el ajuste. Investigador e índice.
 4. Bea pregunta cuánto pagó de expensas en marzo. Es el libro de Bea.
 5. Bea pregunta por el texto del alquiler. No es el comprobante de Ada.
 
-Además, el resumen de Ada no incluye el monto ni los id de Bea, el de Bea no incluye los de Ada, y un `GET /documentos/{id}` cruzado responde 404.
+También comprueba que el resumen de una persona no incluye los montos de la otra y que un `GET /documentos/{id}` cruzado responde 404.
 
-En Phoenix (http://localhost:6006, proyecto `gastos-hogar`) cada una de esas cinco consultas es una traza. Ahí se distinguen el supervisor, el investigador y el analista, el costo por ejecución y la latencia. Las capturas de esta entrega, si existen, están en `screenshots/`. Las de `api/screenshots/` son de TechCorp y no son evidencia de este sistema.
-
-Sin `JWT_SECRET` no hay registro. Sin la clave y el nombre del modelo, la lectura del PDF responde 502 y el job queda `FAILED`. El script lo dice y no inventa trazas.
+En Phoenix (proyecto `gastos-hogar`) cada consulta es una traza. Ahí aparecen el supervisor, el investigador, el analista, el span `ejecutar_tarea` y las llamadas al modelo como `ChatConCanal`. Las imágenes de `screenshots/` no reemplazan esa corrida. Las de `api/screenshots/` son de otro sistema y no son evidencia de este.
 
 ## Grafo de agentes
 
-El supervisor elige un especialista. El investigador y el analista no se hablan: vuelven al supervisor. `FINISH` pasa por `evaluar_criticidad`. Una consulta de lectura sigue a la síntesis. Una acción con efecto (asentar un pago) queda en `AWAITING_APPROVAL` hasta `POST /tasks/{id}/approve`.
+El supervisor elige un especialista. El investigador y el analista vuelven al supervisor. `FINISH` pasa por `evaluar_criticidad`. Una consulta de lectura sigue a la síntesis. Una acción con efecto (asentar un pago) queda en `AWAITING_APPROVAL` hasta `POST /tasks/{id}/approve`.
 
 ```mermaid
 graph TD
@@ -88,11 +99,11 @@ graph TD
     SIN --> FIN([END])
 ```
 
-El investigador usa `buscar_comprobantes` sobre el retriever híbrido. El `user_id` lo pone el sistema, no el modelo. El analista usa `consultar_gastos` (agregados SQL) y la calculadora, que no llama a `eval`.
+El investigador usa `buscar_comprobantes` sobre el retriever híbrido. El analista usa `consultar_gastos` (agregados SQL) y la calculadora, que recorre un árbol de expresiones y no llama a `eval`. Los argumentos de las tres tools son modelos Pydantic. Ninguno acepta `user_id`.
 
-## Del frontend a la API
+El grafo se compila en `construir_grafo` con el checkpointer de Redis. El hilo de la conversación es `thread_id`: al reiniciar el servidor, el checkpoint sigue en Redis.
 
-El navegador solo habla HTTP con la API, con `Authorization: Bearer`. No abre Pinecone, Redis, SQLite ni el modelo. La URL sale de `VITE_API_URL`. El token queda en `sessionStorage` de la pestaña.
+## Del navegador a la traza
 
 ```mermaid
 graph LR
@@ -107,16 +118,34 @@ graph LR
     WORKER -.-> OBS[Phoenix]
 ```
 
-## Estado de las cinco trazas
+## Pruebas automáticas
 
-El stack está arriba: API en http://localhost:8000 (`GET /health` → `{"status":"ok"}`), Phoenix en http://localhost:6006 (proyecto `gastos-hogar`), Redis en `localhost:6379` y el frontend en http://localhost:5173. `api/.env` existe.
+Desde `api/`, con el virtualenv activo:
 
-Cinco `POST /tasks` seguidos, con los comprobantes ya confirmados, terminaron `DONE`:
+```bash
+python -m pytest
+```
 
-1. Ada, cuánto pagó de expensas en marzo.
-2. Ada, luz de enero contra febrero.
-3. Ada, qué dice el alquiler sobre el ajuste.
-4. Bea, cuánto pagó de expensas en marzo.
-5. Bea, el texto del alquiler (no aparece el ajuste de Ada).
+Cubren el ruteo del supervisor, la pausa humana, la extracción, el aislamiento entre cuentas, los hogares y el contrato HTTP. No sustituyen las cinco trazas de Phoenix: esas salen de `api/scripts/carga.py` con el stack levantado.
 
-En Phoenix, el proyecto `gastos-hogar` tiene spans `supervisor`, `analista`, `investigador` y `ejecutar_tarea`. Las llamadas al modelo quedan como `ChatConCanal`. Las capturas de `screenshots/` son de una corrida anterior, cuando la extracción todavía fallaba. Las de `api/screenshots/` son de TechCorp y no son evidencia de este sistema.
+## Configuración
+
+La lista comentada está en [`api/.env.example`](api/.env.example). El código lee el nombre del modelo, el índice y las claves desde el entorno. No hay un modelo ni un índice escritos fijos en el código de la aplicación.
+
+`OBSERVABILIDAD` acepta `phoenix` (el valor de esta entrega), `langsmith` o `both`. Phoenix no pide clave. LangSmith solo arranca si existe `LANGSMITH_API_KEY`.
+
+## Mapa del repositorio
+
+```
+├── README.md                 # este archivo
+├── AGENTS.md                 # por dónde entra un agente
+├── FUENTE-DE-LA-VERDAD.md    # contrato de producto
+├── docs/evaluacion.md        # protocolo para puntuar la entrega
+├── docker-compose.yml
+├── run.sh
+├── api/                      # FastAPI, grafo, RAG, tests, script de las cinco consultas
+├── frontend/                 # SPA
+└── screenshots/              # capturas; la evidencia viva está en Phoenix
+```
+
+Los planes de implementación en `docs/plan-*.md` y los prompts en `prompts/` explican cómo se construyó. No reemplazan la rúbrica ni este README.
