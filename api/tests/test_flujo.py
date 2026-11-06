@@ -21,12 +21,11 @@ from app.state import AgentState
 from app.worker import extraer_interrupt
 
 CONSULTA_LECTURA = (
-    "Un empleado va a cumplir 12 años en TechCorp. "
-    "¿Cuántos días de vacaciones acumuló en total en esos 12 años?"
+    "¿Cuánto suman las expensas de marzo?"
 )
 CONSULTA_CRITICA = (
-    "Calculá los días de vacaciones y, cuando tengas el total, "
-    "registrá el ajuste en su legajo y notificá a RRHH."
+    "Cuando termines de sumar los comprobantes, "
+    "registrá el ajuste y notificá al hogar."
 )
 
 

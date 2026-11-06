@@ -25,7 +25,7 @@ Total 100. Aprobación en 70. Cada fila vale su peso completo. La consigna no pu
 | Criterio | Peso | Qué tiene que estar | Rango si está a medias |
 | --- | ---: | --- | --- |
 | Arquitectura y coherencia | 30 | RAG, agentes coordinados por un supervisor y una API unificada, en un flujo solo. | 18–24 si falta el cable entre dos capas que sí existen. 0–12 si no hay supervisor, o no hay RAG, o no hay API. |
-| Robustez: asincronía y validación | 25 | Python 3.12, `async`/`await` hacia modelos y bases, Pydantic en la API y en las tools. | 15–20 si el grafo corre en un hilo porque el checkpointer de Redis es síncrono, y el resto cumple. 0–10 si hay `requests` dentro de `async def`, si no hay Pydantic, o si no es 3.12. |
+| Robustez: asincronía y validación | 25 | Python 3.12, `async`/`await` hacia modelos y bases, Pydantic en la API y en las tools. | 15–20 si el camino del modelo o de la base sigue a medias, y el resto cumple. Ese rango ya no aplica por el checkpointer: el worker usa `AsyncRedisSaver` y `ainvoke` en el loop, y los nodos siguen llamando al modelo con `ainvoke`. 0–10 si hay `requests` dentro de `async def`, si no hay Pydantic, o si no es 3.12. |
 | Persistencia y observabilidad | 20 | Checkpointer de LangGraph y trazas en Phoenix o LangSmith, incluidas cinco ejecuciones. | 12–16 si el checkpointer y el cable de Phoenix están, y las cinco trazas no se reejecutaron porque faltan claves. 0–8 si no hay checkpointer o no hay instrumento de trazas. |
 | Documentación y despliegue | 15 | README con diagrama y un arranque local de un comando. | 8–12 si hay diagrama o hay comando, no las dos cosas. 0–5 si no hay ninguna. |
 | Entorno y estándares | 10 | Secretos en `.env`, dependencias declaradas, código partido en módulos. | 5–7 si el manejo de secretos es correcto y queda un nombre de modelo o de índice fijo. 0–3 si hay un secreto versionado. |
@@ -82,13 +82,13 @@ Una pregunta de totales no se responde solo con el índice. Una pregunta sobre e
 - No hay `import requests` ni `from requests` en `api/`.
 - SQLite entra por `aiosqlite` (`api/app/db.py`).
 - El cliente HTTP del modelo es asíncrono (`api/app/llm.py`, `httpx` en el camino de OpenAI).
-- El worker documenta por qué el grafo usa `invoke` dentro de `asyncio.to_thread`: `RedisSaver` no implementa la API asíncrona de checkpoints (`api/app/worker.py`, `api/app/agents/bucle.py`). Las llamadas al modelo dentro de los nodos van por `ainvoke`. Eso no es un `requests` metido en un `async def`. No bajes el criterio a 0 por ese hilo.
+- El worker corre el grafo con `ainvoke` en el loop, con `AsyncRedisSaver` (`api/app/worker.py`). Los nodos siguen siendo síncronos y llaman al modelo con `ainvoke` (`api/app/agents/bucle.py`). Eso no es un `requests` metido en un `async def`. No bajes el criterio a 0 porque el nodo siga siendo síncrono.
 - Los cuerpos HTTP están en `api/app/esquemas.py`. Las tools rechazan campos de más, incluido `user_id`.
 - `user_id` en el body de una ruta que no lo lleva responde 422. Hay un test en `api/tests/test_cuenta.py`.
 
 ### 4. Checkpointer y trazas (20)
 
-- El lifespan abre `RedisSaver.from_conn_string` y compila el grafo con ese saver (`api/app/main.py`).
+- El lifespan abre `AsyncRedisSaver.from_conn_string` (`__aenter__` corre `asetup`) y compila el grafo con ese saver (`api/app/main.py`).
 - El hilo es `thread_id` (`config_hilo` en `api/app/graph.py`), no el id del job. Reiniciar la API no borra el volumen `redis_data`.
 - Phoenix se registra en el arranque (`api/app/observability.py`): proyecto `PHOENIX_PROJECT` o `gastos-hogar`, endpoint `/v1/traces`, `LangChainInstrumentor`. El compose fija `PHOENIX_PROJECT=gastos-hogar` y `PHOENIX_COLLECTOR_ENDPOINT=http://phoenix:6006`.
 - El worker abre el span `ejecutar_tarea`. Las llamadas al modelo se ven como `ChatConCanal`.
@@ -125,7 +125,7 @@ Si el virtualenv no está, no lo instales con una clave de nadie y no restes por
 
 ## Errores de lectura frecuentes
 
-- Tratar el `graph.invoke` del worker como “el sistema es síncrono”. El motivo está escrito al lado de la llamada: el saver de Redis no tiene `aget_tuple`. Los modelos y SQLite no pasan por `requests`.
+- Tratar el `ainvoke` del worker como si el grafo siguiera en un hilo porque `RedisSaver` no tiene `aget_tuple`. El loop usa `AsyncRedisSaver` y `graph.ainvoke`. Los nodos siguen llamando al modelo con `ainvoke`. Los modelos y SQLite no pasan por `requests`.
 - Pedir infraestructura en la nube o un workflow de GitHub para “grado de producción”. La consigna limita el despliegue a local.
 - Usar `FUENTE-DE-LA-VERDAD.md` como planilla de puntos. Ahí hay producto (hogares, roles, baja de cuenta) que la rúbrica no mide.
 - Exigir las dos opciones de observabilidad. Alcanza Phoenix o LangSmith. Esta entrega cablea Phoenix por defecto.

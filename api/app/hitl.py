@@ -22,7 +22,7 @@ from .state import AgentState, pregunta_actual
 from .texto import sin_cita_comprobante
 
 UMBRAL_MONTO = 1000
-AVISOS = Path(__file__).resolve().parent.parent / "avisos" / "rrhh.jsonl"
+AVISOS = Path(__file__).resolve().parent.parent / "avisos" / "efectos.jsonl"
 _candado_avisos = threading.Lock()
 
 # Frases que piden un efecto fuera del grafo. Una pregunta de lectura
@@ -52,9 +52,6 @@ _EFECTOS = (
     "debita",
     "transferí",
     "transferi",
-    "cargá en el legajo",
-    "carga en el legajo",
-    "cargar en el legajo",
     "costo muy alto",
     "tarea crítica",
     "tarea critica",

@@ -38,7 +38,11 @@ def enrutar_tras_criticidad(state: AgentState) -> Literal["aprobacion_humana", "
 
 
 def construir_grafo(checkpointer) -> CompiledStateGraph:
-    """Compila el grafo. El checkpointer es el de Redis y es síncrono."""
+    """Compila el grafo con el checkpointer que le pasan.
+
+    En producción es ``AsyncRedisSaver``. Un test puede pasar otro saver
+    y seguir llamando ``invoke``.
+    """
     grafo: StateGraph = StateGraph(AgentState)
     grafo.add_node("supervisor", nodo_supervisor)
     grafo.add_node("investigador", nodo_investigador)

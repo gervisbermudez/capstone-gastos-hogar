@@ -4,7 +4,7 @@
 # IP de esta máquina para abrir la app en el celular. No va al repositorio.
 .env
 
-# Datos locales de corrida. Los textos semilla api/data/*.txt sí se versionan.
+# Datos locales de corrida. No se versionan la base, sus archivos laterales ni los jsonl.
 api/data/*.db
 api/data/*.db-*
 api/data/*.jsonl

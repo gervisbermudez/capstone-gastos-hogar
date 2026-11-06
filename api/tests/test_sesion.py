@@ -664,8 +664,11 @@ def test_procesar_no_corre_el_grafo_si_el_hilo_fue_eliminado(tmp_path, monkeypat
     llamados: list[object] = []
 
     class _Grafo:
-        def invoke(self, *args: object, **_kwargs: object) -> None:
-            llamados.append(args)
+        async def ainvoke(self, *args: object, **_kwargs: object) -> None:
+            llamados.append(("ainvoke", args))
+
+        async def aget_state(self, *args: object, **_kwargs: object) -> None:
+            llamados.append(("aget_state", args))
 
     async def caso() -> None:
         from app.worker import FAILED, crear_job, leer, procesar

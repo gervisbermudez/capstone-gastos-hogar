@@ -1,9 +1,9 @@
 """Corre una corrutina desde un nodo síncrono.
 
-El lifespan compila el grafo con ``RedisSaver``. Ese saver no implementa
-``aget_tuple``, así que el worker sigue en ``graph.invoke`` dentro de un
-hilo. La llamada al modelo igual es ``ainvoke``: ese hilo no tiene un loop
-mientras corre el grafo.
+El worker corre el grafo con ``ainvoke`` y ``AsyncRedisSaver``. Esos nodos
+siguen siendo síncronos: ``ainvoke`` los ejecuta igual. La llamada al modelo
+sigue siendo ``ainvoke``, en un loop de este hilo, porque el nodo no es una
+corrutina.
 """
 
 from __future__ import annotations
@@ -45,9 +45,10 @@ def _loop_abierto() -> asyncio.AbstractEventLoop:
 def correr_async(coro: Coroutine[object, object, T]) -> T:
     """Corre la corrutina en un contexto vacío.
 
-    El nodo ya está dentro de ``graph.invoke``. Si se copia ese contexto,
-    el agente interno hereda el ``RedisSaver`` del grafo padre y llama a
-    ``aget_tuple``, que ese saver no implementa.
+    El nodo corre dentro de ``graph.ainvoke``, que copia el contexto del
+    grafo al hilo del nodo. Si el agente interno hereda ese contexto, usa
+    el ``AsyncRedisSaver`` del grafo padre y llama a ``aget_tuple`` desde
+    otro loop: el cliente de Redis de ese saver vive en el loop de la API.
     """
     contexto = contextvars.Context()
 

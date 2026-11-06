@@ -466,8 +466,7 @@ def test_lectura_no_pausa_y_el_pago_si() -> None:
     assert critica is True
     assert "efecto" in motivo
     lectura, _ = es_critica_texto(
-        "Un empleado va a cumplir 12 años en TechCorp. "
-        "¿Cuántos días de vacaciones acumuló en total en esos 12 años?"
+        "¿Cuántos meses de alquiler llevás en el mismo departamento?"
     )
     assert lectura is False
 
@@ -577,8 +576,10 @@ def test_main_alinea_el_contrato() -> None:
     assert '_montar_router(".rutas_auth")' in texto
     assert '_montar_router(".rutas_documentos")' in texto
     assert "FRONTEND_ORIGIN" in texto
-    assert "RedisSaver" in texto
+    assert "AsyncRedisSaver" in texto
     assert "worker_loop" in texto
+    worker = (RAIZ / "app" / "worker.py").read_text(encoding="utf-8")
+    assert "graph.invoke" not in worker
     rag_texto = (RAIZ / "app" / "rag.py").read_text(encoding="utf-8")
     assert "techcorp-rag-hibrido" not in rag_texto
     assert 'os.getenv("INDEX_NAME"' in rag_texto

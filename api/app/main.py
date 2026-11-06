@@ -13,7 +13,6 @@ import contextlib
 import importlib
 import logging
 import os
-import sys
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -77,16 +76,12 @@ def _id_usuario(usuario: object) -> str:
     return valor.strip()
 
 
-def _abrir_checkpointer(url: str):
-    from langgraph.checkpoint.redis import RedisSaver
+async def _abrir_checkpointer(url: str):
+    """Abre ``AsyncRedisSaver``. ``__aenter__`` corre ``asetup``."""
+    from langgraph.checkpoint.redis.aio import AsyncRedisSaver
 
-    contexto = RedisSaver.from_conn_string(url)
-    saver = contexto.__enter__()
-    try:
-        saver.setup()
-    except Exception:
-        contexto.__exit__(*sys.exc_info())
-        raise
+    contexto = AsyncRedisSaver.from_conn_string(url)
+    saver = await contexto.__aenter__()
     return contexto, saver
 
 
@@ -104,7 +99,7 @@ async def lifespan(app: FastAPI):
         ) from exc
 
     try:
-        contexto, saver = await asyncio.to_thread(_abrir_checkpointer, REDIS_URL)
+        contexto, saver = await _abrir_checkpointer(REDIS_URL)
     except Exception as exc:
         await cliente.aclose()
         raise RuntimeError(
@@ -141,7 +136,7 @@ async def lifespan(app: FastAPI):
             except asyncio.TimeoutError:
                 pendiente.cancel()
         await cliente.aclose()
-        contexto.__exit__(None, None, None)
+        await contexto.__aexit__(None, None, None)
 
 
 app = FastAPI(

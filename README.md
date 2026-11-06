@@ -78,7 +78,7 @@ El script registra dos personas, confirma comprobantes por la API y hace cinco `
 
 También comprueba que el resumen de una persona no incluye los montos de la otra y que un `GET /documentos/{id}` cruzado responde 404.
 
-En Phoenix (proyecto `gastos-hogar`) cada consulta es una traza. Ahí aparecen el supervisor, el investigador, el analista, el span `ejecutar_tarea` y las llamadas al modelo como `ChatConCanal`. Las imágenes de `screenshots/` no reemplazan esa corrida. Las de `api/screenshots/` son de otro sistema y no son evidencia de este.
+En Phoenix (proyecto `gastos-hogar`) cada consulta es una traza. Ahí aparecen el supervisor, el investigador, el analista, el span `ejecutar_tarea` y las llamadas al modelo como `ChatConCanal`. Las imágenes de `screenshots/` no reemplazan esa corrida. La carpeta `api/screenshots/` no trae capturas de esta entrega. La evidencia es Phoenix, proyecto `gastos-hogar`, y lo que quede en `screenshots/` después de la corrida.
 
 ## Grafo de agentes
 

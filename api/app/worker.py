@@ -1,9 +1,9 @@
 """Cola Redis y worker que corre el grafo fuera del request.
 
 El POST guarda el estado PENDING y recién ahí hace RPUSH. El worker saca
-el id, pasa a RUNNING y ejecuta el grafo en un hilo: el checkpointer del
-lifespan es RedisSaver, síncrono, y ``ainvoke`` no puede usarlo. Las
-llamadas al modelo, adentro del grafo, sí son ``ainvoke``.
+el id, pasa a RUNNING y ejecuta el grafo con ``ainvoke`` en el loop: el
+checkpointer del lifespan es ``AsyncRedisSaver``. Los nodos siguen siendo
+síncronos y, adentro, las llamadas al modelo son ``ainvoke``.
 
 Si el grafo se pausa, el estado queda AWAITING_APPROVAL. Si revienta,
 queda FAILED: el cliente no se queda esperando para siempre.
@@ -505,9 +505,9 @@ def extraer_interrupt(snapshot) -> dict[str, Any] | None:
     return None
 
 
-def _correr(graph, entrada, config, user_id: str, *, reanudar: bool) -> tuple[Any, dict[str, Any] | None]:
-    """Corre en un hilo. La pausa humana no es un fallo: el checkpoint queda en Redis."""
-    previo = graph.get_state(config)
+async def _correr(graph, entrada, config, user_id: str, *, reanudar: bool) -> tuple[Any, dict[str, Any] | None]:
+    """Corre en el loop. La pausa humana no es un fallo: el checkpoint queda en Redis."""
+    previo = await graph.aget_state(config)
     dueno = (getattr(previo, "values", None) or {}).get("user_id")
     if dueno and dueno != user_id:
         raise PermissionError("El hilo no pertenece a esta sesión.")
@@ -521,10 +521,10 @@ def _correr(graph, entrada, config, user_id: str, *, reanudar: bool) -> tuple[An
         span.set_attribute("session.id", config["configurable"]["thread_id"])
         span.set_attribute("enduser.id", user_id)
         try:
-            resultado = graph.invoke(entrada, config)
+            resultado = await graph.ainvoke(entrada, config)
         except _pausas():
             logger.info("Grafo en pausa para %s", config["configurable"]["thread_id"])
-        return graph.get_state(config), _interrupt_en_resultado(resultado)
+        return await graph.aget_state(config), _interrupt_en_resultado(resultado)
 
 
 def _pausas():
@@ -597,8 +597,7 @@ async def procesar(redis, graph, job_id: str) -> None:
             else:
                 entrada = estado_inicial(job["query"], user_id, hogar_id=hogar_id or "")
 
-            snapshot, interrupt_directo = await asyncio.to_thread(
-                _correr,
+            snapshot, interrupt_directo = await _correr(
                 graph,
                 entrada,
                 config,
